@@ -5,32 +5,51 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     required: true,
-    unique: true,
-    trim: true,
-  },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
     trim: true,
     lowercase: true,
   },
-  password: {
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+  },
+  passwordHash: {
     type: String,
     required: true,
   },
-}, { timestamps: true });
-
-// Hash the password before saving the user
-userSchema.pre('save', async function () {
-  if (!this.isModified('password')) return;
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
+  name: {
+    type: String,
+    default: '',
+  },
+  role: {
+    type: String,
+    default: 'BRANCH_USER',
+  },
+  branch: {
+    type: String,
+    default: '',
+  },
+  branches: {
+    type: [String],
+    default: [],
+  },
+}, { 
+  timestamps: true,
+  collection: 'login'
 });
 
-// Method to compare passwords for login
+// Method to compare candidate password with stored hash
 userSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  const hash = this.passwordHash;
+  if (!hash) return false;
+  return await bcrypt.compare(candidatePassword, hash);
+};
+
+// Static helper to hash passwords
+userSchema.statics.hashPassword = async function (plainPassword) {
+  const salt = await bcrypt.genSalt(10);
+  return await bcrypt.hash(plainPassword, salt);
 };
 
 module.exports = mongoose.model('User', userSchema);
+
