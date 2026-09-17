@@ -41,60 +41,51 @@ exports.getAdminData = async (req, res) => {
 
       if (userDoc) {
         if (Array.isArray(userDoc.branches) && userDoc.branches.length > 0) {
-          branchesList = userDoc.branches;
-        } else if (userDoc.branch && userDoc.branch !== 'College') {
+          branchesList = userDoc.branches.filter(b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS');
+        } else if (userDoc.branch && userDoc.branch !== 'College' && userDoc.branch !== 'VMS' && userDoc.branch !== 'ALL') {
           branchesList = [userDoc.branch];
         }
       }
     }
 
     // 3. Construct filter:
-    // If a specific sub-branch is selected (and not 'ALL' or 'College'), filter by that branch.
-    // Otherwise, filter by the logged account's assigned branches list.
     let filter = {};
-    if (selectedBranch && selectedBranch !== 'ALL' && selectedBranch !== 'College') {
+    if (selectedBranch && selectedBranch !== 'ALL' && selectedBranch !== 'College' && selectedBranch !== 'VMS') {
       filter = { branch: selectedBranch };
     } else if (branchesList.length > 0) {
       filter = { branch: { $in: branchesList } };
-    } else if (selectedBranch && selectedBranch !== 'ALL') {
-      filter = { branch: selectedBranch };
     }
 
-    if (type === 'stages') {
-      const docs = await db.collection('stages').find(filter).limit(2000).toArray();
+    const normType = (type || 'societies').toLowerCase();
+
+    if (normType === 'societies' || normType === 'society') {
+      const docs = await db.collection('society').find({}).sort({ name: 1 }).limit(1000).toArray();
       return res.json({
-        type: 'stages',
+        type: 'societies',
         data: docs.map((d, i) => ({
           sno: i + 1,
           id: d._id,
-          society: d.society || '',
-          branch: d.branch || '',
-          regno: d.regno || '',
           name: d.name || '',
-          sequenceno: d.sequenceno || '',
-          amount: d.amount || '0',
-          students: d.students || '0'
+          societyname: d.name || ''
         }))
       });
     }
 
-    if (type === 'routes') {
-      const docs = await db.collection('route').find(filter).limit(2000).toArray();
+    if (normType === 'branches' || normType === 'branch') {
+      const docs = await db.collection('branch').find({}).sort({ name: 1 }).limit(1000).toArray();
       return res.json({
-        type: 'routes',
+        type: 'branches',
         data: docs.map((d, i) => ({
           sno: i + 1,
           id: d._id,
-          society: d.society || '',
-          branch: d.branch || '',
-          routename: d.routename || '',
-          distance: d.distance || 0,
-          routeregno: d.routeregno || ''
+          society: d.test || d.society || '',
+          branchname: d.name || '',
+          name: d.name || ''
         }))
       });
     }
 
-    if (type === 'transfers') {
+    if (normType === 'transfers') {
       const docs = await db.collection('transfer').find(filter).limit(2000).toArray();
       return res.json({
         type: 'transfers',
@@ -113,7 +104,7 @@ exports.getAdminData = async (req, res) => {
       });
     }
 
-    if (type === 'route_details') {
+    if (normType === 'route_details') {
       const docs = await db.collection('routedetails').find(filter).limit(2000).toArray().catch(() => []);
       return res.json({
         type: 'route_details',
@@ -127,6 +118,40 @@ exports.getAdminData = async (req, res) => {
           distance: d.distance || '',
           regno: d.regno || '',
           starttime: d.starttime || ''
+        }))
+      });
+    }
+
+    if (normType === 'handovers' || normType === 'handover') {
+      const docs = await db.collection('handovers').find(filter).limit(1000).toArray().catch(() => []);
+      return res.json({
+        type: 'handovers',
+        data: docs.map((d, i) => ({
+          sno: i + 1,
+          id: d._id,
+          society: d.society || '',
+          branch: d.branch || '',
+          regno: d.regno || '',
+          date: d.date || '',
+          driver: d.driver || d.staffname || '',
+          status: d.status || 'Completed'
+        }))
+      });
+    }
+
+    if (normType === 'issues' || normType === 'issue') {
+      const docs = await db.collection('issues').find(filter).limit(1000).toArray().catch(() => []);
+      return res.json({
+        type: 'issues',
+        data: docs.map((d, i) => ({
+          sno: i + 1,
+          id: d._id,
+          society: d.society || '',
+          branch: d.branch || '',
+          regno: d.regno || '',
+          date: d.date || '',
+          description: d.description || d.remarks || '',
+          status: d.status || 'Pending'
         }))
       });
     }
@@ -164,10 +189,16 @@ exports.deleteAdminItem = async (req, res) => {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
     const collectionMap = {
+      societies: 'society',
+      society: 'society',
+      branches: 'branch',
+      branch: 'branch',
       stages: 'stages',
       routes: 'route',
       transfers: 'transfer',
-      route_details: 'routedetails'
+      route_details: 'routedetails',
+      handovers: 'handovers',
+      issues: 'issues'
     };
     const colName = collectionMap[type] || 'stages';
     const { ObjectId } = mongoose.Types;
