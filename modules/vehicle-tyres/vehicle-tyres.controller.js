@@ -6,7 +6,7 @@ exports.getVehicleTyresData = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const type = (req.query.type || 'tyres').toLowerCase();
-    const targetCollection = type === 'status' ? 'tyrestatus' : 'vehicletyres';
+    const targetCollection = type === 'status' ? 'tyrestatus' : type === 'rebutton' ? 'rebuttontyres' : 'vehicletyres';
     const branchFilter = buildBranchFilter(req.user, req.query.branch);
 
     let query = { ...branchFilter };
@@ -41,8 +41,8 @@ exports.getVehicleTyresData = async (req, res) => {
 exports.createVehicleTyreItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
-    const type = (req.params.type || req.body.type || 'tyres').toLowerCase();
-    const targetCollection = type === 'status' ? 'tyrestatus' : 'vehicletyres';
+    const t = (req.params.type || req.body.type || 'tyres').toLowerCase();
+    const targetCollection = t === 'status' ? 'tyrestatus' : t === 'rebutton' ? 'rebuttontyres' : 'vehicletyres';
 
     const data = {
       ...req.body,
@@ -62,7 +62,8 @@ exports.updateVehicleTyreItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const targetCollection = (type || '').toLowerCase() === 'status' ? 'tyrestatus' : 'vehicletyres';
+    const t = (type || '').toLowerCase();
+    const targetCollection = t === 'status' ? 'tyrestatus' : t === 'rebutton' ? 'rebuttontyres' : 'vehicletyres';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     const updateData = { ...req.body };
@@ -82,7 +83,8 @@ exports.deleteVehicleTyreItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const targetCollection = (type || '').toLowerCase() === 'status' ? 'tyrestatus' : 'vehicletyres';
+    const t = (type || '').toLowerCase();
+    const targetCollection = t === 'status' ? 'tyrestatus' : t === 'rebutton' ? 'rebuttontyres' : 'vehicletyres';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     await db.collection(targetCollection).deleteOne(filter);
