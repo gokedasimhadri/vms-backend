@@ -3,11 +3,20 @@ const { ObjectId } = require('mongodb');
 const { buildBranchFilter } = require('../../utils/scope.helper');
 
 const collectionMap = {
-  fuel: 'fuel',
+  suppliers: 'fuelsuppliers',
+  fuelsuppliers: 'fuelsuppliers',
+  bunk: 'fuelbunk',
   fuelbunk: 'fuelbunk',
+  servicing: 'bunkservicing',
+  bunkservicing: 'bunkservicing',
   fuelfill: 'fuelfill',
+  bunkfillings: 'fuelfill',
   busfill: 'busfill',
-  bunkservicing: 'bunkservicing'
+  busfillings: 'busfill',
+  entrydata: 'busfill',
+  generatereport: 'busfill',
+  searchbusreport: 'busfill',
+  fuel: 'fuelsuppliers'
 };
 
 exports.getFuelsData = async (req, res) => {
@@ -16,8 +25,8 @@ exports.getFuelsData = async (req, res) => {
     const type = (req.query.type || 'busfill').toLowerCase();
     const targetCollection = collectionMap[type] || 'busfill';
 
-    // fuel & fuelbunk can be global; busfill & fuelfill are branch scoped
-    const branchFilter = (type === 'fuel' || type === 'fuelbunk')
+    // suppliers & fuelbunk can be global; others are branch scoped
+    const branchFilter = (type === 'suppliers' || type === 'fuelsuppliers' || type === 'bunk' || type === 'fuelbunk')
       ? {}
       : buildBranchFilter(req.user, req.query.branch);
 
