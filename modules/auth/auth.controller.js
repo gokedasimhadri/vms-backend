@@ -51,14 +51,11 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Username and password are required' });
     }
 
-    // Escape regex characters for safe exact case-insensitive match
-    const escaped = identifier.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-
-    // Find all matching users by username or email (to support accounts with multiple branches)
+    // Find all matching users by normalized username or email (utilizing index)
     const users = await User.find({
       $or: [
-        { username: { $regex: new RegExp(`^${escaped}$`, 'i') } },
-        { email: { $regex: new RegExp(`^${escaped}$`, 'i') } }
+        { username: identifier },
+        { email: identifier }
       ]
     });
 
@@ -102,7 +99,7 @@ exports.login = async (req, res) => {
 
     const token = jwt.sign(
       payload,
-      process.env.JWT_SECRET || 'fallback_secret_key',
+      process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 

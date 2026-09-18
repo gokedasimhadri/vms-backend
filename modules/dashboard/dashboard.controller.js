@@ -24,14 +24,14 @@ exports.getOverview = async (req, res) => {
       exceededTripsCount,
       rawServices
     ] = await Promise.all([
-      db.collection('branchvehicle').countDocuments(filter).catch(() => 686),
-      db.collection('vehicleaccident').countDocuments(filter).catch(() => 78),
-      db.collection('officestaff').countDocuments().catch(() => 36),
-      db.collection('busstaff').countDocuments(filter).catch(() => 526),
-      db.collection('transfer').countDocuments().catch(() => 188),
-      db.collection('pollution').countDocuments({ status: 'on', ...filter }).catch(() => 7),
-      db.collection('fitness').countDocuments({ status: 'on', ...filter }).catch(() => 3),
-      db.collection('insurance').countDocuments({ status: 'on', ...filter }).catch(() => 63),
+      db.collection('branchvehicle').countDocuments(filter).catch(() => 0),
+      db.collection('vehicleaccident').countDocuments(filter).catch(() => 0),
+      db.collection('officestaff').countDocuments().catch(() => 0),
+      db.collection('busstaff').countDocuments(filter).catch(() => 0),
+      db.collection('transfer').countDocuments().catch(() => 0),
+      db.collection('pollution').countDocuments({ status: 'on', ...filter }).catch(() => 0),
+      db.collection('fitness').countDocuments({ status: 'on', ...filter }).catch(() => 0),
+      db.collection('insurance').countDocuments({ status: 'on', ...filter }).catch(() => 0),
       db.collection('roadtax').countDocuments({ status: 'on', ...filter }).catch(() => 0),
       db.collection('roadpermit').countDocuments({ status: 'on', ...filter }).catch(() => 0),
       db.collection('rta').countDocuments({ status: 'on', ...filter }).catch(() => 0),
@@ -41,18 +41,32 @@ exports.getOverview = async (req, res) => {
       db.collection('tyrestatus').aggregate([
         { $group: { _id: '$status', count: { $sum: 1 } } }
       ]).toArray().catch(() => []),
-      db.collection('vehicletrip').countDocuments({ result: /^exceed/i, ...filter }).catch(() => 94),
-      db.collection('vehicleservice').find(filter).toArray().catch(() => [])
+      db.collection('vehicletrip').countDocuments({ result: /^exceed/i, ...filter }).catch(() => 0),
+      db.collection('vehicleservice').find(filter).project({
+        society: 1,
+        branch: 1,
+        model: 1,
+        vehicleregno: 1,
+        vehicleno: 1,
+        date: 1,
+        serviceparts: 1,
+        duration: 1,
+        lastreading: 1,
+        presentreading: 1,
+        remainder: 1,
+        kms: 1,
+        remarks: 1
+      }).limit(500).toArray().catch(() => [])
     ]);
 
     // Parse Battery Summary
     const batterySummary = {
-      unassigned: 56,
-      active: 730,
-      condemn: 3,
-      dead: 2,
-      theft: 2,
-      warrantyExpired: 6
+      unassigned: 0,
+      active: 0,
+      condemn: 0,
+      dead: 0,
+      theft: 0,
+      warrantyExpired: 0
     };
     if (batteryAgg && batteryAgg.length > 0) {
       batteryAgg.forEach(item => {
@@ -68,8 +82,8 @@ exports.getOverview = async (req, res) => {
 
     // Parse Tyres Summary
     const tyresSummary = {
-      unassigned: 20,
-      active: 249
+      unassigned: 0,
+      active: 0
     };
     if (tyreAgg && tyreAgg.length > 0) {
       tyreAgg.forEach(item => {
@@ -113,20 +127,20 @@ exports.getOverview = async (req, res) => {
 
     res.json({
       adminSummary: {
-        handOvers: '72/168',
-        issues: '18/168',
-        transfers: transferCount || 188
+        handOvers: '0/0',
+        issues: '0/0',
+        transfers: transferCount || 0
       },
       staffSummary: {
-        officeStaff: officeStaffCount || 36,
-        busStaff: busStaffCount || 526
+        officeStaff: officeStaffCount || 0,
+        busStaff: busStaffCount || 0
       },
       fuelsSummary: {
         busFillings: 0
       },
       vehiclesSummary: {
-        branchVehicleInfo: branchVehicleCount || 686,
-        vehicleAccidents: vehicleAccidentsCount || 78
+        branchVehicleInfo: branchVehicleCount || 0,
+        vehicleAccidents: vehicleAccidentsCount || 0
       },
       licenseSummary: {
         licenseExpired: 0
@@ -135,11 +149,11 @@ exports.getOverview = async (req, res) => {
       tyresSummary,
       certificateAlerts: {
         rta: rtaCount || 0,
-        pollution: pollutionCount || 7,
-        fitness: fitnessCount || 3,
+        pollution: pollutionCount || 0,
+        fitness: fitnessCount || 0,
         roadTax: roadTaxCount || 0,
         roadPermit: roadPermitCount || 0,
-        insurance: insuranceCount || 63
+        insurance: insuranceCount || 0
       },
       kmplPerformance: {
         aGrade: 0,
@@ -147,7 +161,7 @@ exports.getOverview = async (req, res) => {
         cGrade: 0,
         dGrade: 0
       },
-      exceededTrips: exceededTripsCount || 94,
+      exceededTrips: exceededTripsCount || 0,
       services
     });
   } catch (error) {

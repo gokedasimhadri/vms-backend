@@ -1,8 +1,15 @@
 require('dotenv').config();
+
+if (!process.env.JWT_SECRET) {
+  console.error('FATAL ERROR: JWT_SECRET environment variable is not set. Exiting process.');
+  process.exit(1);
+}
+
 var createError = require('http-errors');
 var express = require('express');
 var cors = require('cors');
 var mongoose = require('mongoose');
+const { requireAuth } = require('./middleware/auth.middleware');
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI)
@@ -42,8 +49,12 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', indexRouter);
-app.use('/users', usersRouter);
 app.use('/', authRouter);
+
+// Require JWT authentication for all subsequent routes
+app.use(requireAuth);
+
+app.use('/users', usersRouter);
 app.use('/', dashboardRouter);
 app.use('/', adminRouter);
 app.use('/', staffRouter);

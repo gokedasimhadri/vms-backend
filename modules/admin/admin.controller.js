@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const jwt = require('jsonwebtoken');
 
 exports.getAdminData = async (req, res) => {
   try {
@@ -7,53 +6,26 @@ exports.getAdminData = async (req, res) => {
     const type = req.query.type || 'stages';
     const selectedBranch = req.query.branch;
 
-    // 1. Extract logged account's username and branch from query, headers, or JWT token
-    let username = req.query.username || req.headers['x-user-username'];
-    let userBranch = req.query.userBranch || req.headers['x-user-branch'];
+    // Branch scope from req.user (single source of truth from JWT)
+    const user = req.user || {};
+    const isAdmin = user.role === 'ADMIN';
+    const assignedBranches = (user.branches || (user.branch ? [user.branch] : [])).filter(
+      b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS'
+    );
 
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
-        if (decoded && decoded.user) {
-          username = username || decoded.user.username;
-          userBranch = userBranch || decoded.user.branch;
-        }
-      } catch (err) {
-        // Ignore token verification errors and proceed
-      }
-    }
-
-    // 2. Fetch logged user document from login collection to get their assigned branches array
-    let branchesList = [];
-    if (username) {
-      const userQuery = { username: { $regex: new RegExp(`^${username.trim()}$`, 'i') } };
-      if (userBranch && userBranch !== 'ALL') {
-        userQuery.branch = userBranch;
-      }
-      let userDoc = await db.collection('login').findOne(userQuery);
-      if (!userDoc) {
-        userDoc = await db.collection('login').findOne({
-          username: { $regex: new RegExp(`^${username.trim()}$`, 'i') }
-        });
-      }
-
-      if (userDoc) {
-        if (Array.isArray(userDoc.branches) && userDoc.branches.length > 0) {
-          branchesList = userDoc.branches.filter(b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS');
-        } else if (userDoc.branch && userDoc.branch !== 'College' && userDoc.branch !== 'VMS' && userDoc.branch !== 'ALL') {
-          branchesList = [userDoc.branch];
-        }
-      }
-    }
-
-    // 3. Construct filter:
+    // Construct filter:
+    // Non-admins can only view their assigned branches; requested branch outside assigned set is ignored
     let filter = {};
-    if (selectedBranch && selectedBranch !== 'ALL' && selectedBranch !== 'College' && selectedBranch !== 'VMS') {
-      filter = { branch: selectedBranch };
-    } else if (branchesList.length > 0) {
-      filter = { branch: { $in: branchesList } };
+    if (isAdmin) {
+      if (selectedBranch && selectedBranch !== 'ALL' && selectedBranch !== 'College' && selectedBranch !== 'VMS') {
+        filter = { branch: selectedBranch };
+      }
+    } else {
+      if (selectedBranch && assignedBranches.includes(selectedBranch)) {
+        filter = { branch: selectedBranch };
+      } else if (assignedBranches.length > 0) {
+        filter = { branch: { $in: assignedBranches } };
+      }
     }
 
     const normType = (type || 'societies').toLowerCase();
@@ -186,6 +158,10 @@ exports.createStage = async (req, res) => {
 
 exports.deleteAdminItem = async (req, res) => {
   try {
+    if (!req.user || req.user.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Access denied: Admin role required' });
+    }
+
     const db = mongoose.connection.db;
     const { type, id } = req.params;
     const collectionMap = {
@@ -214,47 +190,17 @@ exports.getStageFormOptions = async (req, res) => {
   try {
     const db = mongoose.connection.db;
 
-    // 1. Identify logged-in account from query, headers, or JWT token
-    let username = req.query.username || req.headers['x-user-username'];
-    let userBranch = req.query.userBranch || req.headers['x-user-branch'];
-
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key');
-        if (decoded && decoded.user) {
-          username = username || decoded.user.username;
-          userBranch = userBranch || decoded.user.branch;
-        }
-      } catch (err) {}
-    }
-
-    // 2. Fetch all societies from 'society' collection
+    // Fetch all societies from 'society' collection
     const societyDocs = await db.collection('society').find({}).sort({ name: 1 }).toArray();
     const societies = societyDocs.map(s => s.name).filter(Boolean);
 
-    // 3. Check mapping with session account in 'login' collection to get branches array
+    // Fetch branches directly from req.user
+    const user = req.user || {};
     let branches = [];
-    if (username) {
-      const userQuery = { username: { $regex: new RegExp(`^${username.trim()}$`, 'i') } };
-      if (userBranch && userBranch !== 'ALL') {
-        userQuery.branch = userBranch;
-      }
-      let userDoc = await db.collection('login').findOne(userQuery);
-      if (!userDoc) {
-        userDoc = await db.collection('login').findOne({
-          username: { $regex: new RegExp(`^${username.trim()}$`, 'i') }
-        });
-      }
-
-      if (userDoc) {
-        if (Array.isArray(userDoc.branches) && userDoc.branches.length > 0) {
-          branches = userDoc.branches;
-        } else if (userDoc.branch && userDoc.branch !== 'College') {
-          branches = [userDoc.branch];
-        }
-      }
+    if (Array.isArray(user.branches) && user.branches.length > 0) {
+      branches = user.branches;
+    } else if (user.branch && user.branch !== 'College') {
+      branches = [user.branch];
     }
 
     res.json({
@@ -264,6 +210,67 @@ exports.getStageFormOptions = async (req, res) => {
   } catch (error) {
     console.error('Error in getStageFormOptions:', error);
     res.status(500).json({ message: 'Server error fetching form options' });
+  }
+};
+
+exports.createAdminItem = async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const { type } = req.params;
+    const collectionMap = {
+      societies: 'society',
+      society: 'society',
+      branches: 'branch',
+      branch: 'branch',
+      stages: 'stages',
+      routes: 'route',
+      transfers: 'transfer',
+      route_details: 'routedetails',
+      handovers: 'handovers',
+      issues: 'issues'
+    };
+    const colName = collectionMap[type] || type;
+    const data = {
+      ...req.body,
+      createdAt: new Date()
+    };
+    const result = await db.collection(colName).insertOne(data);
+    res.status(201).json({ success: true, id: result.insertedId, data });
+  } catch (error) {
+    console.error('Create admin item error:', error);
+    res.status(500).json({ message: 'Error creating admin item' });
+  }
+};
+
+exports.updateAdminItem = async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const { type, id } = req.params;
+    const collectionMap = {
+      societies: 'society',
+      society: 'society',
+      branches: 'branch',
+      branch: 'branch',
+      stages: 'stages',
+      routes: 'route',
+      transfers: 'transfer',
+      route_details: 'routedetails',
+      handovers: 'handovers',
+      issues: 'issues'
+    };
+    const colName = collectionMap[type] || type;
+    const { ObjectId } = mongoose.Types;
+    const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
+
+    const updateData = { ...req.body };
+    delete updateData._id;
+    delete updateData.id;
+
+    await db.collection(colName).updateOne(filter, { $set: updateData });
+    res.json({ success: true, message: 'Item updated successfully' });
+  } catch (error) {
+    console.error('Update admin item error:', error);
+    res.status(500).json({ message: 'Error updating admin item' });
   }
 };
 

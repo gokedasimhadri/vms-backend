@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { ObjectId } = require('mongodb');
+const { buildBranchFilter } = require('../../utils/scope.helper');
 
 const getCollectionForType = (type) => {
   const t = (type || '').toLowerCase();
@@ -17,19 +18,36 @@ exports.getStaffData = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const type = req.query.type || 'Designations';
-    const branch = req.query.branch;
     const collName = getCollectionForType(type);
 
     if (!collName) {
       return res.json({ type, count: 0, data: [] });
     }
 
-    // Designation is global, others can be branch-specific
-    const filter = (collName !== 'Designation' && branch && branch !== 'ALL' && branch !== 'College')
-      ? { branch }
-      : {};
+    // Designation is global, others are branch-scoped
+    const branchFilter = collName === 'Designation'
+      ? {}
+      : buildBranchFilter(req.user, req.query.branch);
 
-    const docs = await db.collection(collName).find(filter).limit(300).toArray();
+    let query = { ...branchFilter };
+    if (req.query.search) {
+      const search = req.query.search.trim();
+      query.$or = [
+        { staffname: { $regex: search, $options: 'i' } },
+        { cleanername: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { designation: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { vehicleno: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const docs = await db.collection(collName)
+      .find(query)
+      .sort({ _id: -1 })
+      .limit(500)
+      .toArray();
+
     return res.json({
       type,
       collection: collName,
@@ -50,15 +68,37 @@ exports.createStaffItem = async (req, res) => {
     if (!collName) {
       return res.status(400).json({ message: 'Invalid staff category' });
     }
-    const payload = req.body;
-    const result = await db.collection(collName).insertOne({
-      ...payload,
+    const payload = {
+      ...req.body,
       createdAt: new Date()
-    });
-    res.status(201).json({ success: true, id: result.insertedId });
+    };
+    const result = await db.collection(collName).insertOne(payload);
+    res.status(201).json({ success: true, id: result.insertedId, data: payload });
   } catch (error) {
     console.error('Error creating staff item:', error);
     res.status(500).json({ message: 'Failed to create item' });
+  }
+};
+
+exports.updateStaffItem = async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const { type, id } = req.params;
+    const collName = getCollectionForType(type);
+    if (!collName) {
+      return res.status(400).json({ message: 'Invalid staff category' });
+    }
+    const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
+
+    const updateData = { ...req.body };
+    delete updateData._id;
+    delete updateData.id;
+
+    await db.collection(collName).updateOne(filter, { $set: updateData });
+    res.json({ success: true, message: 'Updated successfully' });
+  } catch (error) {
+    console.error('Error updating staff item:', error);
+    res.status(500).json({ message: 'Failed to update item' });
   }
 };
 
@@ -78,4 +118,3 @@ exports.deleteStaffItem = async (req, res) => {
     res.status(500).json({ message: 'Failed to delete item' });
   }
 };
-
