@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const {
   buildExpiryFilter,
   getTodayFormatted,
+  getTodayDateQuery,
   updateRoadTaxStatus,
   updateCertificateStatuses
 } = require('../../utils/expiryQuery.helper');
@@ -12,6 +13,7 @@ exports.getOverview = async (req, res) => {
     const branch = req.query.branch;
     const user = req.user;
     const today = getTodayFormatted();
+    const dateCond = getTodayDateQuery(today);
 
     // Update road tax and certificate alert statuses based on today's date (reference.js lines 9630, 10340, 11041, 11734)
     await updateCertificateStatuses(db, today);
@@ -46,14 +48,14 @@ exports.getOverview = async (req, res) => {
       selectedKmplDate = iso;
     }
 
-    // Build branch-permission scoped queries for Certificate(Alerts)
+    // Build branch-permission scoped queries for Certificate(Alerts) matching status: 'on' OR reminder date equal to system date
     const [rtaQuery, polQuery, fitQuery, insQuery, taxQuery, pmtQuery] = await Promise.all([
-      buildExpiryFilter({ user, db, dateField: 'expireddate', targetDate: today, extraConditions: filter }),
-      buildExpiryFilter({ user, db, dateField: null, extraConditions: { status: 'on', ...filter } }),
-      buildExpiryFilter({ user, db, dateField: null, extraConditions: { status: 'on', ...filter } }),
-      buildExpiryFilter({ user, db, dateField: null, extraConditions: { status: 'on', ...filter } }),
-      buildExpiryFilter({ user, db, dateField: null, extraConditions: { status: 'on', ...filter } }),
-      buildExpiryFilter({ user, db, dateField: null, extraConditions: { status: 'on', ...filter } })
+      buildExpiryFilter({ user, db, dateField: null, extraConditions: { $or: [{ status: 'on' }, { expireddate: dateCond }, { rdate: dateCond }], ...filter } }),
+      buildExpiryFilter({ user, db, dateField: null, extraConditions: { $or: [{ status: 'on' }, { rdate: dateCond }], ...filter } }),
+      buildExpiryFilter({ user, db, dateField: null, extraConditions: { $or: [{ status: 'on' }, { rdate: dateCond }], ...filter } }),
+      buildExpiryFilter({ user, db, dateField: null, extraConditions: { $or: [{ status: 'on' }, { rdate: dateCond }], ...filter } }),
+      buildExpiryFilter({ user, db, dateField: null, extraConditions: { $or: [{ status: 'on' }, { ddate: dateCond }], ...filter } }),
+      buildExpiryFilter({ user, db, dateField: null, extraConditions: { $or: [{ status: 'on' }, { ddate: dateCond }], ...filter } })
     ]);
 
     const [
@@ -180,12 +182,14 @@ exports.getOverview = async (req, res) => {
       });
     }
 
-    // Format services
+    // Format services and evaluate threshold crossing: (presentreading - lastreading) >= remainder or kms >= remainder
     const mappedServices = (rawServices || []).map(s => {
       const last = parseFloat(s.lastreading) || 0;
       const present = parseFloat(s.presentreading) || 0;
       const rem = parseFloat(s.remainder) || 0;
-      const diff = (present > 0 && last >= 0) ? (present - last) : (parseFloat(s.kms) || 0);
+      const kmsVal = parseFloat(s.kms) || 0;
+      const diff = (present > 0 && last >= 0) ? (present - last) : kmsVal;
+      const isDue = rem > 0 && (diff >= rem || kmsVal >= rem);
       return {
         id: s._id,
         society: s.society || '',
@@ -200,7 +204,7 @@ exports.getOverview = async (req, res) => {
         kms: diff > 0 ? diff : (s.kms ?? ''),
         remainder: s.remainder ?? '',
         remarks: s.remarks || '',
-        isDue: rem > 0 && diff >= rem
+        isDue
       };
     });
 
@@ -261,11 +265,12 @@ exports.getRtaExpired = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const targetDate = req.query.date || getTodayFormatted();
+    const dateCond = getTodayDateQuery(targetDate);
     const query = await buildExpiryFilter({
       user: req.user,
       db,
-      dateField: 'expireddate',
-      targetDate
+      dateField: null,
+      extraConditions: { $or: [{ status: 'on' }, { expireddate: dateCond }, { rdate: dateCond }] }
     });
     const docs = await db.collection('rta').find(query).toArray();
     res.send(docs);
@@ -279,11 +284,13 @@ exports.getRtaExpired = async (req, res) => {
 exports.getPollutionExpired = async (req, res) => {
   try {
     const db = mongoose.connection.db;
+    const today = req.query.date || getTodayFormatted();
+    const dateCond = getTodayDateQuery(today);
     const query = await buildExpiryFilter({
       user: req.user,
       db,
       dateField: null,
-      extraConditions: { status: 'on' }
+      extraConditions: { $or: [{ status: 'on' }, { rdate: dateCond }] }
     });
     const docs = await db.collection('pollution').find(query).toArray();
     res.send(docs);
@@ -297,11 +304,13 @@ exports.getPollutionExpired = async (req, res) => {
 exports.getFitnessExpired = async (req, res) => {
   try {
     const db = mongoose.connection.db;
+    const today = req.query.date || getTodayFormatted();
+    const dateCond = getTodayDateQuery(today);
     const query = await buildExpiryFilter({
       user: req.user,
       db,
       dateField: null,
-      extraConditions: { status: 'on' }
+      extraConditions: { $or: [{ status: 'on' }, { rdate: dateCond }] }
     });
     const docs = await db.collection('fitness').find(query).toArray();
     res.send(docs);
@@ -316,6 +325,7 @@ exports.getRoadtaxExpired = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const today = req.query.date || getTodayFormatted();
+    const dateCond = getTodayDateQuery(today);
 
     // Update road tax status based on today's date (reference.js line 11734):
     // if today == ddate -> status: 'on'
@@ -326,7 +336,7 @@ exports.getRoadtaxExpired = async (req, res) => {
       user: req.user,
       db,
       dateField: null,
-      extraConditions: { status: 'on' }
+      extraConditions: { $or: [{ status: 'on' }, { ddate: dateCond }] }
     });
     const docs = await db.collection('roadtax').find(query).toArray();
     res.send(docs);
@@ -340,11 +350,13 @@ exports.getRoadtaxExpired = async (req, res) => {
 exports.getRoadpermitExpired = async (req, res) => {
   try {
     const db = mongoose.connection.db;
+    const today = req.query.date || getTodayFormatted();
+    const dateCond = getTodayDateQuery(today);
     const query = await buildExpiryFilter({
       user: req.user,
       db,
       dateField: null,
-      extraConditions: { status: 'on' }
+      extraConditions: { $or: [{ status: 'on' }, { ddate: dateCond }] }
     });
     const docs = await db.collection('roadpermit').find(query).toArray();
     res.send(docs);
@@ -358,11 +370,13 @@ exports.getRoadpermitExpired = async (req, res) => {
 exports.getInsuranceExpired = async (req, res) => {
   try {
     const db = mongoose.connection.db;
+    const today = req.query.date || getTodayFormatted();
+    const dateCond = getTodayDateQuery(today);
     const query = await buildExpiryFilter({
       user: req.user,
       db,
       dateField: null,
-      extraConditions: { status: 'on' }
+      extraConditions: { $or: [{ status: 'on' }, { rdate: dateCond }] }
     });
     const docs = await db.collection('insurance').find(query).toArray();
     res.send(docs);

@@ -19,6 +19,30 @@ const getTodayFormatted = () => {
 };
 
 /**
+ * Returns a MongoDB query condition matching both DD-MM-YYYY and YYYY-MM-DD formats
+ */
+const getTodayDateQuery = (targetDate) => {
+  if (targetDate) {
+    if (typeof targetDate === 'string') {
+      if (/^\d{2}-\d{2}-\d{4}$/.test(targetDate)) {
+        const parts = targetDate.split('-');
+        return { $in: [targetDate, `${parts[2]}-${parts[1]}-${parts[0]}`] };
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+        const parts = targetDate.split('-');
+        return { $in: [targetDate, `${parts[2]}-${parts[1]}-${parts[0]}`] };
+      }
+      return targetDate;
+    }
+    return targetDate;
+  }
+  const d = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return { $in: [`${day}-${month}-${year}`, `${year}-${month}-${day}`] };
+};
+
+/**
  * Fetches vehicle registration numbers assigned to a BRANCH_ADMIN
  * 
  * @param {Object} user - Authenticated user from req.user
@@ -60,7 +84,7 @@ const getAdminVehicleRegNos = async (user, db) => {
  * @param {Object} params.user - Authenticated user (req.user)
  * @param {Object} params.db - MongoDB native connection db
  * @param {string} [params.dateField='expireddate'] - Field to check date on
- * @param {string} [params.targetDate] - Target date string ('DD-MM-YYYY'), defaults to today
+ * @param {string} [params.targetDate] - Target date string ('DD-MM-YYYY' or 'YYYY-MM-DD'), defaults to today
  * @param {string} [params.branchField='branch'] - Field name for branch in target collection
  * @param {Object} [params.extraConditions] - Additional query terms (e.g. { status: 'on' })
  * @returns {Promise<Object>} MongoDB query object
@@ -73,12 +97,12 @@ const buildExpiryFilter = async ({
   branchField = 'branch',
   extraConditions = {}
 }) => {
-  const date = targetDate || getTodayFormatted();
+  const dateCond = getTodayDateQuery(targetDate);
   const query = { ...extraConditions };
 
   // If a specific dateField is provided, attach date condition
   if (dateField) {
-    query[dateField] = date;
+    query[dateField] = dateCond;
   }
 
   if (!user) {
@@ -139,11 +163,11 @@ const buildExpiryFilter = async ({
  * else if (today == valid) -> status: 'off'
  */
 const updateRoadTaxStatus = async (db, targetDate) => {
-  const today = targetDate || getTodayFormatted();
+  const dateCond = getTodayDateQuery(targetDate);
   try {
     const [resOn, resOff] = await Promise.all([
-      db.collection('roadtax').updateMany({ ddate: today }, { $set: { status: 'on' } }),
-      db.collection('roadtax').updateMany({ valid: today }, { $set: { status: 'off' } })
+      db.collection('roadtax').updateMany({ ddate: dateCond }, { $set: { status: 'on' } }),
+      db.collection('roadtax').updateMany({ valid: dateCond }, { $set: { status: 'off' } })
     ]);
     const counts = {
       total: await db.collection('roadtax').countDocuments().catch(() => 0),
@@ -152,7 +176,7 @@ const updateRoadTaxStatus = async (db, targetDate) => {
     };
     return {
       success: true,
-      today,
+      targetDate: targetDate || getTodayFormatted(),
       modifiedOn: resOn.modifiedCount,
       modifiedOff: resOff.modifiedCount,
       matchedOn: resOn.matchedCount,
@@ -161,7 +185,7 @@ const updateRoadTaxStatus = async (db, targetDate) => {
     };
   } catch (err) {
     console.error('Error updating roadtax status for today:', err);
-    return { success: false, today, error: err.message };
+    return { success: false, error: err.message };
   }
 };
 
@@ -170,19 +194,19 @@ const updateRoadTaxStatus = async (db, targetDate) => {
  * based on today's date (roadtax, roadpermit, pollution, fitness, insurance).
  */
 const updateCertificateStatuses = async (db, targetDate) => {
-  const today = targetDate || getTodayFormatted();
+  const dateCond = getTodayDateQuery(targetDate);
   try {
     await Promise.all([
-      db.collection('roadtax').updateMany({ ddate: today }, { $set: { status: 'on' } }),
-      db.collection('roadtax').updateMany({ valid: today }, { $set: { status: 'off' } }),
-      db.collection('roadpermit').updateMany({ ddate: today }, { $set: { status: 'on' } }),
-      db.collection('roadpermit').updateMany({ valid: today }, { $set: { status: 'off' } }),
-      db.collection('pollution').updateMany({ rdate: today }, { $set: { status: 'on' } }),
-      db.collection('pollution').updateMany({ valid: today }, { $set: { status: 'off' } }),
-      db.collection('fitness').updateMany({ rdate: today }, { $set: { status: 'on' } }),
-      db.collection('fitness').updateMany({ valid: today }, { $set: { status: 'off' } }),
-      db.collection('insurance').updateMany({ rdate: today }, { $set: { status: 'on' } }),
-      db.collection('insurance').updateMany({ valid: today }, { $set: { status: 'off' } })
+      db.collection('roadtax').updateMany({ ddate: dateCond }, { $set: { status: 'on' } }),
+      db.collection('roadtax').updateMany({ valid: dateCond }, { $set: { status: 'off' } }),
+      db.collection('roadpermit').updateMany({ ddate: dateCond }, { $set: { status: 'on' } }),
+      db.collection('roadpermit').updateMany({ valid: dateCond }, { $set: { status: 'off' } }),
+      db.collection('pollution').updateMany({ rdate: dateCond }, { $set: { status: 'on' } }),
+      db.collection('pollution').updateMany({ valid: dateCond }, { $set: { status: 'off' } }),
+      db.collection('fitness').updateMany({ rdate: dateCond }, { $set: { status: 'on' } }),
+      db.collection('fitness').updateMany({ valid: dateCond }, { $set: { status: 'off' } }),
+      db.collection('insurance').updateMany({ rdate: dateCond }, { $set: { status: 'on' } }),
+      db.collection('insurance').updateMany({ valid: dateCond }, { $set: { status: 'off' } })
     ]);
   } catch (err) {
     console.error('Error updating certificate statuses for today:', err);
@@ -191,6 +215,7 @@ const updateCertificateStatuses = async (db, targetDate) => {
 
 module.exports = {
   getTodayFormatted,
+  getTodayDateQuery,
   getAdminVehicleRegNos,
   buildExpiryFilter,
   updateRoadTaxStatus,
