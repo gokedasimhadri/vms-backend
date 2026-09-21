@@ -86,12 +86,15 @@ exports.login = async (req, res) => {
     ];
 
     // Generate JWT
+    const isSuperUser = ['vms', 'vmskkd', 'vc', 'admin'].includes(matchedUser.username?.toLowerCase());
+    const effectiveRole = isSuperUser ? 'ADMIN' : (matchedUser.role || 'BRANCH_USER');
+
     const payload = {
       user: {
         id: matchedUser._id,
         username: matchedUser.username,
         name: matchedUser.name || matchedUser.username,
-        role: matchedUser.role || 'BRANCH_USER',
+        role: effectiveRole,
         branch: matchedUser.branch || (allBranches[0] || ''),
         branches: allBranches,
       }
