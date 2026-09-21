@@ -2,11 +2,22 @@ const mongoose = require('mongoose');
 const { ObjectId } = require('mongodb');
 const { buildBranchFilter } = require('../../utils/scope.helper');
 
+const getTargetCollection = (typeParam) => {
+  const t = (typeParam || '').toLowerCase();
+  if (t === 'dailymaintenance' || t === 'daily' || t === 'daily_vehicle_maintenance') {
+    return 'dailyvehiclemaintenance';
+  }
+  if (t === 'repair' || t === 'vehiclerepairs' || t === 'vehicle_repairs') {
+    return 'vehiclerepair';
+  }
+  return 'vehicleservice';
+};
+
 exports.getServicesData = async (req, res) => {
   try {
     const db = mongoose.connection.db;
-    const type = (req.query.type || 'service').toLowerCase();
-    const targetCollection = type === 'repair' ? 'vehiclerepair' : 'vehicleservice';
+    const type = (req.query.type || 'dailymaintenance').toLowerCase();
+    const targetCollection = getTargetCollection(type);
     const branchFilter = buildBranchFilter(req.user, req.query.branch);
 
     let query = { ...branchFilter };
@@ -16,14 +27,15 @@ exports.getServicesData = async (req, res) => {
         { vehicleno: { $regex: search, $options: 'i' } },
         { vehicleregno: { $regex: search, $options: 'i' } },
         { model: { $regex: search, $options: 'i' } },
-        { serviceparts: { $regex: search, $options: 'i' } }
+        { serviceparts: { $regex: search, $options: 'i' } },
+        { attendantname: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
       ];
     }
 
     const docs = await db.collection(targetCollection)
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
 
     res.json({
@@ -41,8 +53,8 @@ exports.getServicesData = async (req, res) => {
 exports.createServiceItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
-    const type = (req.params.type || req.body.type || 'service').toLowerCase();
-    const targetCollection = type === 'repair' ? 'vehiclerepair' : 'vehicleservice';
+    const type = (req.params.type || req.body.type || 'dailymaintenance').toLowerCase();
+    const targetCollection = getTargetCollection(type);
 
     const data = {
       ...req.body,
@@ -62,7 +74,7 @@ exports.updateServiceItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const targetCollection = (type || '').toLowerCase() === 'repair' ? 'vehiclerepair' : 'vehicleservice';
+    const targetCollection = getTargetCollection(type);
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     const updateData = { ...req.body };
@@ -82,7 +94,7 @@ exports.deleteServiceItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const targetCollection = (type || '').toLowerCase() === 'repair' ? 'vehiclerepair' : 'vehicleservice';
+    const targetCollection = getTargetCollection(type);
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     await db.collection(targetCollection).deleteOne(filter);

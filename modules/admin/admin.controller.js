@@ -256,7 +256,7 @@ function extractBranchKeywords(branchName) {
     words.push(parenMatch[1].trim());
   }
   const cleaned = branchName.replace(/-[A-Za-z0-9]+$/, '').trim();
-  const parts = cleaned.split(/[\s()\-]+/).filter(w => 
+  const parts = cleaned.split(/[\s()\-]+/).filter(w =>
     w.length > 3 && !['ADITYA', 'COLLEGE', 'SCHOOL', 'PUBLIC', 'DEGREE', 'JUNIOR', 'CAMPUS', 'HEAD', 'OFFICE'].includes(w.toUpperCase())
   );
   return [...new Set([...words, ...parts])].filter(Boolean);

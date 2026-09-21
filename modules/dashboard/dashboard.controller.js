@@ -129,7 +129,7 @@ exports.getOverview = async (req, res) => {
         remainder: 1,
         kms: 1,
         remarks: 1
-      }).limit(500).toArray().catch(() => [])
+      }).toArray().catch(() => [])
     ]);
 
     // Parse Battery Summary
@@ -419,7 +419,6 @@ exports.getBusfilldata = async (req, res) => {
     const docs = await db.collection('busfill')
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
     res.send(docs);
   } catch (err) {
@@ -494,7 +493,6 @@ exports.getVehicleservice = async (req, res) => {
     const docs = await db.collection('vehicleservice')
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
     res.send(docs);
   } catch (err) {
@@ -515,7 +513,6 @@ exports.getBusbreakedowndata = async (req, res) => {
     const docs = await db.collection('busbreakedown')
       .find(query)
       .sort({ _id: -1 })
-      .limit(200)
       .toArray();
     res.send(docs);
   } catch (err) {

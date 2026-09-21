@@ -40,7 +40,6 @@ exports.getVehiclesData = async (req, res) => {
     const docs = await db.collection(collName)
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
 
     res.json({

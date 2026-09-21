@@ -45,7 +45,6 @@ exports.getFuelsData = async (req, res) => {
     const docs = await db.collection(targetCollection)
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
 
     res.json({
