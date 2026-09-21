@@ -6,7 +6,8 @@ exports.getBatteriesData = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const type = (req.query.type || 'vehiclewise').toLowerCase();
-    const targetCollection = type === 'reports' ? 'batterychangereport' : 'vehiclewisebattery';
+    const isTrack = type === 'trackbattery' || type === 'track';
+    const targetCollection = (type === 'reports' || isTrack) ? 'batterychangereport' : 'vehiclewisebattery';
     const branchFilter = buildBranchFilter(req.user, req.query.branch);
 
     let query = { ...branchFilter };
@@ -16,15 +17,60 @@ exports.getBatteriesData = async (req, res) => {
         { vehicleregno: { $regex: search, $options: 'i' } },
         { battery_make: { $regex: search, $options: 'i' } },
         { battery_number: { $regex: search, $options: 'i' } },
+        { frombusno: { $regex: search, $options: 'i' } },
+        { tobusno: { $regex: search, $options: 'i' } },
         { status: { $regex: search, $options: 'i' } }
       ];
     }
 
-    const docs = await db.collection(targetCollection)
+    let docs = await db.collection(targetCollection)
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
+
+    if (isTrack) {
+      // If batterychangereport is empty or search returns no docs, also check vehiclewisebattery
+      if (docs.length === 0 && req.query.search) {
+        const vwDocs = await db.collection('vehiclewisebattery')
+          .find(query)
+          .sort({ _id: -1 })
+          .toArray();
+        docs = vwDocs.map(d => ({
+          ...d,
+          frombusno: '-',
+          tobusno: d.vehicleregno || '-',
+          initialfitmentdate: d.fitment_date || '-',
+          presentfitmentdate: d.fitment_date || '-'
+        }));
+      }
+
+      // Compute total shift counts for each battery_number across both collections
+      const allChangeReports = await db.collection('batterychangereport').find({}).toArray();
+      const shiftCountMap = {};
+      allChangeReports.forEach(r => {
+        const bNo = (r.battery_number || '').trim().toUpperCase();
+        if (bNo) {
+          shiftCountMap[bNo] = (shiftCountMap[bNo] || 0) + 1;
+        }
+      });
+
+      docs = docs.map(d => {
+        const bNo = (d.battery_number || '').trim().toUpperCase();
+        const shiftCount = shiftCountMap[bNo] || (d.frombusno && d.tobusno && d.frombusno !== d.tobusno ? 1 : 0);
+        return {
+          ...d,
+          shift_count: shiftCount,
+          id: d._id.toString()
+        };
+      });
+
+      return res.json({
+        type,
+        collection: targetCollection,
+        count: docs.length,
+        data: docs
+      });
+    }
 
     res.json({
       type,
@@ -42,7 +88,8 @@ exports.createBatteryItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const type = (req.params.type || req.body.type || 'vehiclewise').toLowerCase();
-    const targetCollection = type === 'reports' ? 'batterychangereport' : 'vehiclewisebattery';
+    const isReportOrTrack = type === 'reports' || type === 'trackbattery' || type === 'track';
+    const targetCollection = isReportOrTrack ? 'batterychangereport' : 'vehiclewisebattery';
 
     const data = {
       ...req.body,
@@ -62,7 +109,9 @@ exports.updateBatteryItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const targetCollection = (type || '').toLowerCase() === 'reports' ? 'batterychangereport' : 'vehiclewisebattery';
+    const t = (type || '').toLowerCase();
+    const isReportOrTrack = t === 'reports' || t === 'trackbattery' || t === 'track';
+    const targetCollection = isReportOrTrack ? 'batterychangereport' : 'vehiclewisebattery';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     const updateData = { ...req.body };
@@ -82,7 +131,9 @@ exports.deleteBatteryItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const targetCollection = (type || '').toLowerCase() === 'reports' ? 'batterychangereport' : 'vehiclewisebattery';
+    const t = (type || '').toLowerCase();
+    const isReportOrTrack = t === 'reports' || t === 'trackbattery' || t === 'track';
+    const targetCollection = isReportOrTrack ? 'batterychangereport' : 'vehiclewisebattery';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     await db.collection(targetCollection).deleteOne(filter);

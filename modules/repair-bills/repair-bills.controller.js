@@ -21,10 +21,15 @@ exports.getRepairBillsData = async (req, res) => {
       ];
     }
 
+    if (req.query.fromDate || req.query.toDate) {
+      query.repairdate = {};
+      if (req.query.fromDate) query.repairdate.$gte = req.query.fromDate;
+      if (req.query.toDate) query.repairdate.$lte = req.query.toDate;
+    }
+
     const docs = await db.collection('repairbills')
       .find(query)
       .sort({ _id: -1 })
-      .limit(500)
       .toArray();
 
     res.json({
