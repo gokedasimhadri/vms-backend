@@ -45,10 +45,7 @@ exports.getStaffData = async (req, res) => {
     const docs = await db.collection(collName)
       .find(query)
       .sort({ _id: -1 })
-<<<<<<< Updated upstream
       .limit(1000)
-=======
->>>>>>> Stashed changes
       .toArray();
 
     return res.json({
