@@ -75,7 +75,9 @@ exports.getOverview = async (req, res) => {
       exceededTripsCount,
       busFillAgg,
       busBreakdownCount,
-      rawServices
+      rawServices,
+      rawBranches,
+      rawVehicles
     ] = await Promise.all([
       db.collection('branchvehicle').countDocuments(filter).catch(() => 0),
       db.collection('vehicleaccident').countDocuments(filter).catch(() => 0),
@@ -129,7 +131,9 @@ exports.getOverview = async (req, res) => {
         remainder: 1,
         kms: 1,
         remarks: 1
-      }).toArray().catch(() => [])
+      }).toArray().catch(() => []),
+      db.collection('branch').find({}).project({ name: 1, test: 1, society: 1 }).toArray().catch(() => []),
+      db.collection('vehicleinfo').find({}).project({ vehicleno: 1, vehicleregno: 1, society: 1 }).toArray().catch(() => [])
     ]);
 
     // Parse Battery Summary
@@ -182,6 +186,26 @@ exports.getOverview = async (req, res) => {
       });
     }
 
+    // Build branch & vehicle lookup maps for society fallback resolution
+    const branchMap = {};
+    (rawBranches || []).forEach(b => {
+      if (b.name) branchMap[b.name.trim()] = b.test || b.society || '';
+    });
+    const vehicleMap = {};
+    (rawVehicles || []).forEach(v => {
+      const reg = (v.vehicleregno || v.vehicleno || '').trim();
+      if (reg && v.society) vehicleMap[reg] = v.society;
+    });
+    const deriveSocietyFromBranch = (bName) => {
+      if (!bName) return '';
+      const name = bName.trim().toUpperCase();
+      if (name.includes('-AA') || name.includes('-AAA')) return 'ADITYA ACADEMY';
+      if (name.includes('-SES')) return 'SAROJINI EDUCATIONAL SOCIETY';
+      if (name.includes('-AES')) return 'ADITYA EDUCATIONAL SOCIETY';
+      if (name.includes('-SAES')) return 'SRI ADITYA EDUCATIONAL SOCIETY';
+      return '';
+    };
+
     // Format services and evaluate threshold crossing: (presentreading - lastreading) >= remainder or kms >= remainder
     const mappedServices = (rawServices || []).map(s => {
       const last = parseFloat(s.lastreading) || 0;
@@ -190,9 +214,24 @@ exports.getOverview = async (req, res) => {
       const kmsVal = parseFloat(s.kms) || 0;
       const diff = (present > 0 && last >= 0) ? (present - last) : kmsVal;
       const isDue = rem > 0 && (diff >= rem || kmsVal >= rem);
+
+      const vno = (s.vehicleregno || s.vehicleno || '').trim();
+      const bName = (s.branch || '').trim();
+
+      let soc = (s.society || '').trim();
+      if (!soc && bName && branchMap[bName]) {
+        soc = branchMap[bName];
+      }
+      if (!soc && vno && vehicleMap[vno]) {
+        soc = vehicleMap[vno];
+      }
+      if (!soc && bName) {
+        soc = deriveSocietyFromBranch(bName);
+      }
+
       return {
         id: s._id,
-        society: s.society || '',
+        society: soc || '',
         branch: s.branch || '',
         model: s.model || '',
         vehicleno: s.vehicleregno || s.vehicleno || '',
