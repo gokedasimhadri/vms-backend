@@ -580,14 +580,39 @@ exports.searchVehicleInfo = async (req, res) => {
       return res.json([]);
     }
 
-    const safeVal = queryVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const docs = await db.collection('vehicleinfo')
-      .find({ regno: new RegExp(safeVal, 'i') })
-      .project({ regno: 1, make: 1, model: 1, type: 1, _id: 1 })
-      .limit(30)
-      .toArray();
+    const rx = new RegExp(queryVal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
 
-    res.json(docs);
+    const [infoDocs, branchDocs] = await Promise.all([
+      db.collection('vehicleinfo')
+        .find({ $or: [{ regno: rx }, { vehicleregno: rx }, { busno: rx }] })
+        .project({ regno: 1, vehicleregno: 1, busno: 1, make: 1, model: 1, type: 1, _id: 1 })
+        .limit(30)
+        .toArray(),
+      db.collection('branchvehicle')
+        .find({ $or: [{ regno: rx }, { vehicleregno: rx }, { busno: rx }] })
+        .project({ regno: 1, vehicleregno: 1, busno: 1, make: 1, model: 1, type: 1, _id: 1 })
+        .limit(30)
+        .toArray()
+    ]);
+
+    const combined = [...infoDocs, ...branchDocs].map(d => ({
+      _id: d._id,
+      regno: d.regno || d.vehicleregno || d.busno,
+      make: d.make || '',
+      model: d.model || d.type || ''
+    })).filter(d => d.regno);
+
+    const unique = [];
+    const seen = new Set();
+    for (const item of combined) {
+      const key = item.regno.toUpperCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(item);
+      }
+    }
+
+    res.json(unique.slice(0, 30));
   } catch (error) {
     console.error('Search vehicle info error:', error);
     res.status(500).json({ message: 'Error searching vehicle info' });

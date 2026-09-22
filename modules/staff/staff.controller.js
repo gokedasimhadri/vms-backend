@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { ObjectId } = require('mongodb');
 const { buildBranchFilter } = require('../../utils/scope.helper');
+const { processImagePayload } = require('../../utils/upload.helper');
 
 const getCollectionForType = (type) => {
   const t = (type || '').toLowerCase();
@@ -68,10 +69,10 @@ exports.createStaffItem = async (req, res) => {
     if (!collName) {
       return res.status(400).json({ message: 'Invalid staff category' });
     }
-    const payload = {
+    const payload = processImagePayload({
       ...req.body,
       createdAt: new Date()
-    };
+    });
     const result = await db.collection(collName).insertOne(payload);
     res.status(201).json({ success: true, id: result.insertedId, data: payload });
   } catch (error) {
@@ -90,7 +91,7 @@ exports.updateStaffItem = async (req, res) => {
     }
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
-    const updateData = { ...req.body };
+    const updateData = processImagePayload({ ...req.body });
     delete updateData._id;
     delete updateData.id;
 

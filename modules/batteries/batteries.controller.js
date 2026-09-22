@@ -95,7 +95,6 @@ exports.createBatteryItem = async (req, res) => {
       ...req.body,
       createdAt: new Date()
     };
-    delete data.type;
 
     const result = await db.collection(targetCollection).insertOne(data);
     res.status(201).json({ success: true, id: result.insertedId, data });
@@ -117,7 +116,6 @@ exports.updateBatteryItem = async (req, res) => {
     const updateData = { ...req.body };
     delete updateData._id;
     delete updateData.id;
-    delete updateData.type;
 
     await db.collection(targetCollection).updateOne(filter, { $set: updateData });
     res.json({ success: true, message: 'Battery record updated successfully' });
