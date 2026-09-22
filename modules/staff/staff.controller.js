@@ -45,6 +45,7 @@ exports.getStaffData = async (req, res) => {
     const docs = await db.collection(collName)
       .find(query)
       .sort({ _id: -1 })
+      .limit(1000)
       .toArray();
 
     return res.json({
