@@ -32,16 +32,25 @@ exports.getAdminData = async (req, res) => {
 
     if (normType === 'societies' || normType === 'society') {
       const docs = await db.collection('society').find({}).sort({ name: 1 }).limit(1000).toArray();
+      const uniqueDocs = [];
+      const seen = new Set();
+      for (const d of docs) {
+        const sName = (d.name || d.society || d.societyname || '').trim();
+        if (sName && !seen.has(sName.toLowerCase())) {
+          seen.add(sName.toLowerCase());
+          uniqueDocs.push(d);
+        }
+      }
       return res.json({
         type: 'societies',
-        data: docs.map((d, i) => ({
+        data: uniqueDocs.map((d, i) => ({
           ...d,
           sno: i + 1,
           id: d._id.toString(),
           _id: d._id.toString(),
-          name: d.name || d.society || d.societyname || '',
-          societyname: d.name || d.society || d.societyname || '',
-          society: d.name || d.society || d.societyname || ''
+          name: (d.name || d.society || d.societyname || '').trim(),
+          societyname: (d.name || d.society || d.societyname || '').trim(),
+          society: (d.name || d.society || d.societyname || '').trim()
         }))
       });
     }
