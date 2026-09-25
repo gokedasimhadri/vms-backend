@@ -17,7 +17,9 @@ exports.getRepairBillsData = async (req, res) => {
         { busnumber: { $regex: search, $options: 'i' } },
         { vehicleregno: { $regex: search, $options: 'i' } },
         { vouchernumber: { $regex: search, $options: 'i' } },
-        { vendorname: { $regex: search, $options: 'i' } }
+        { vendorname: { $regex: search, $options: 'i' } },
+        { materialinformation: { $regex: search, $options: 'i' } },
+        { materialinfo: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -32,10 +34,29 @@ exports.getRepairBillsData = async (req, res) => {
       .sort({ _id: -1 })
       .toArray();
 
+    const mappedDocs = docs.map(d => {
+      const matInfo = d.materialinfo || d.materialinformation || d.material_info || d.materials || '-';
+      const busNo = d.busnumber || d.vehicleregno || d.busno || d.vehicleno || '-';
+      const soc = d.society || d.Society || '-';
+      const mod = d.model || d.Model || '-';
+
+      return {
+        ...d,
+        society: soc,
+        model: mod,
+        busnumber: busNo,
+        vehicleregno: busNo,
+        materialinfo: matInfo,
+        materialinformation: matInfo,
+        remarks: d.remarks || '-',
+        id: d._id.toString()
+      };
+    });
+
     res.json({
       type: 'repairbills',
-      count: docs.length,
-      data: docs.map(d => ({ ...d, id: d._id.toString() }))
+      count: mappedDocs.length,
+      data: mappedDocs
     });
   } catch (error) {
     console.error('Error fetching repair bills data:', error);
@@ -109,6 +130,7 @@ exports.createRepairBill = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const body = req.body;
+    const matInfo = body.materialinfo || body.materialinformation || body.material_info || '';
 
     const repairData = {
       society: body.society || body.Society || '',
@@ -120,7 +142,8 @@ exports.createRepairBill = async (req, res) => {
       vendorname: body.vendorname || '',
       amount: parseFloat(body.amount) || 0,
       vouchernumber: body.vouchernumber || '',
-      materialinformation: body.materialinformation || '',
+      materialinfo: matInfo,
+      materialinformation: matInfo,
       remarks: body.remarks || '',
       repairdate: body.repairdate || new Date().toISOString().slice(0, 10),
       createdAt: new Date()
@@ -147,6 +170,12 @@ exports.updateRepairBill = async (req, res) => {
     delete updateData._id;
     delete updateData.id;
 
+    if (updateData.materialinfo || updateData.materialinformation) {
+      const val = updateData.materialinfo || updateData.materialinformation;
+      updateData.materialinfo = val;
+      updateData.materialinformation = val;
+    }
+
     await db.collection('repairbills').updateOne(filter, { $set: updateData });
     res.json({ success: true, message: 'Repair bill updated successfully' });
   } catch (error) {
@@ -171,3 +200,4 @@ exports.deleteRepairBill = async (req, res) => {
     res.status(500).json({ message: 'Error deleting repair bill' });
   }
 };
+

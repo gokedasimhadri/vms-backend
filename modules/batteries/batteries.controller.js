@@ -2,6 +2,29 @@ const mongoose = require('mongoose');
 const { ObjectId } = require('mongodb');
 const { buildBranchFilter } = require('../../utils/scope.helper');
 
+function parseDate(val) {
+  if (!val || val === 'Invalid date') return null;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(val)) {
+    const parts = val.split('-');
+    return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+  }
+  const dt = new Date(val);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function formatDate(dt) {
+  if (!dt || isNaN(dt.getTime())) return '-';
+  const d = String(dt.getDate()).padStart(2, '0');
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const y = dt.getFullYear();
+  return `${d}-${m}-${y}`;
+}
+
+function cleanDateStr(val) {
+  if (!val || val === 'Invalid date') return '-';
+  return val;
+}
+
 exports.getBatteriesData = async (req, res) => {
   try {
     const db = mongoose.connection.db;
@@ -16,9 +39,13 @@ exports.getBatteriesData = async (req, res) => {
       query.$or = [
         { vehicleregno: { $regex: search, $options: 'i' } },
         { battery_make: { $regex: search, $options: 'i' } },
+        { batterymake: { $regex: search, $options: 'i' } },
         { battery_number: { $regex: search, $options: 'i' } },
+        { batterynumber: { $regex: search, $options: 'i' } },
         { frombusno: { $regex: search, $options: 'i' } },
+        { fromregno: { $regex: search, $options: 'i' } },
         { tobusno: { $regex: search, $options: 'i' } },
+        { toregno: { $regex: search, $options: 'i' } },
         { status: { $regex: search, $options: 'i' } }
       ];
     }
@@ -35,30 +62,45 @@ exports.getBatteriesData = async (req, res) => {
           .find(query)
           .sort({ _id: -1 })
           .toArray();
-        docs = vwDocs.map(d => ({
-          ...d,
-          frombusno: '-',
-          tobusno: d.vehicleregno || '-',
-          initialfitmentdate: d.fitment_date || '-',
-          presentfitmentdate: d.fitment_date || '-'
-        }));
+        docs = vwDocs;
       }
 
       // Compute total shift counts for each battery_number across both collections
       const allChangeReports = await db.collection('batterychangereport').find({}).toArray();
       const shiftCountMap = {};
       allChangeReports.forEach(r => {
-        const bNo = (r.battery_number || '').trim().toUpperCase();
+        const bNo = (r.battery_number || r.batterynumber || r.batteryno || '').trim().toUpperCase();
         if (bNo) {
           shiftCountMap[bNo] = (shiftCountMap[bNo] || 0) + 1;
         }
       });
 
-      docs = docs.map(d => {
-        const bNo = (d.battery_number || '').trim().toUpperCase();
-        const shiftCount = shiftCountMap[bNo] || (d.frombusno && d.tobusno && d.frombusno !== d.tobusno ? 1 : 0);
+      const mappedTrackDocs = docs.map(d => {
+        const bMake = d.battery_make || d.batterymake || d.make || '-';
+        const bCap = d.battery_capacity || d.batterycapacity || d.capacity || '-';
+        const bNo = d.battery_number || d.batterynumber || d.batteryno || '-';
+        const bNoUpper = String(bNo).trim().toUpperCase();
+        const fromBus = d.frombusno || d.fromregno || '-';
+        const toBus = d.tobusno || d.toregno || d.vehicleregno || '-';
+        const shiftCount = shiftCountMap[bNoUpper] || (fromBus !== '-' && toBus !== '-' && fromBus !== toBus ? 1 : (d.vehicleregno ? 1 : 0));
+
+        const initFit = cleanDateStr(d.initialfitmentdate || d.fitment_date);
+        const presFit = cleanDateStr(d.presentfitmentdate || d.fitment_date);
+
         return {
           ...d,
+          battery_make: bMake,
+          batterymake: bMake,
+          battery_capacity: bCap,
+          batterycapacity: bCap,
+          battery_number: bNo,
+          batterynumber: bNo,
+          frombusno: fromBus,
+          fromregno: fromBus,
+          tobusno: toBus,
+          toregno: toBus,
+          initialfitmentdate: initFit,
+          presentfitmentdate: presFit,
           shift_count: shiftCount,
           id: d._id.toString()
         };
@@ -67,16 +109,72 @@ exports.getBatteriesData = async (req, res) => {
       return res.json({
         type,
         collection: targetCollection,
-        count: docs.length,
-        data: docs
+        count: mappedTrackDocs.length,
+        data: mappedTrackDocs
       });
     }
+
+    // Standard mapping for reports / vehiclewisebattery
+    const mappedDocs = docs.map(d => {
+      const bMake = d.battery_make || d.batterymake || d.make || '-';
+      const bCap = d.battery_capacity || d.batterycapacity || d.capacity || '-';
+      const bNo = d.battery_number || d.batterynumber || d.batteryno || '-';
+      const fromBus = d.frombusno || d.fromregno || '-';
+      const toBus = d.tobusno || d.toregno || d.vehicleregno || '-';
+
+      const initFit = cleanDateStr(d.initialfitmentdate || d.fitment_date);
+      const presFit = cleanDateStr(d.presentfitmentdate || d.fitment_date);
+
+      // Fitment date formatting
+      let fitDateStr = cleanDateStr(d.fitment_date || d.initialfitmentdate);
+
+      // Compute or format expired_date for vehiclewise
+      let expDateStr = cleanDateStr(d.expired_date || d.expireddate);
+
+      if (expDateStr === '-' || expDateStr === 'Invalid date') {
+        const fitDt = parseDate(fitDateStr) || (d.fitment_date_dt ? new Date(d.fitment_date_dt) : null);
+        const warnMonths = parseInt(String(d.warranty || '').replace(/\D/g, ''), 10);
+        if (fitDt && warnMonths) {
+          const computed = new Date(fitDt);
+          computed.setMonth(computed.getMonth() + warnMonths);
+          expDateStr = formatDate(computed);
+        } else if (d.expired_date_dt) {
+          const dtObj = new Date(d.expired_date_dt);
+          if (!isNaN(dtObj.getTime())) {
+            expDateStr = formatDate(dtObj);
+          }
+        }
+      }
+
+      return {
+        ...d,
+        battery_make: bMake,
+        batterymake: bMake,
+        battery_capacity: bCap,
+        batterycapacity: bCap,
+        battery_number: bNo,
+        batterynumber: bNo,
+        frombusno: fromBus,
+        fromregno: fromBus,
+        tobusno: toBus,
+        toregno: toBus,
+        initialfitmentdate: initFit,
+        presentfitmentdate: presFit,
+        fitment_date: fitDateStr,
+        expired_date: expDateStr,
+        expireddate: expDateStr,
+        vehicleregno: d.vehicleregno || d.vehicleno || d.busno || '-',
+        status: d.status || 'ACTIVE',
+        remarks: d.remarks || '-',
+        id: d._id.toString()
+      };
+    });
 
     res.json({
       type,
       collection: targetCollection,
-      count: docs.length,
-      data: docs.map(d => ({ ...d, id: d._id.toString() }))
+      count: mappedDocs.length,
+      data: mappedDocs
     });
   } catch (error) {
     console.error('Error fetching batteries data:', error);
@@ -91,8 +189,25 @@ exports.createBatteryItem = async (req, res) => {
     const isReportOrTrack = type === 'reports' || type === 'trackbattery' || type === 'track';
     const targetCollection = isReportOrTrack ? 'batterychangereport' : 'vehiclewisebattery';
 
+    const body = req.body;
+    const bMake = body.battery_make || body.batterymake || body.make;
+    const bCap = body.battery_capacity || body.batterycapacity || body.capacity;
+    const bNo = body.battery_number || body.batterynumber || body.batteryno;
+    const fromBus = body.frombusno || body.fromregno;
+    const toBus = body.tobusno || body.toregno;
+
     const data = {
-      ...req.body,
+      ...body,
+      battery_make: bMake,
+      batterymake: bMake,
+      battery_capacity: bCap,
+      batterycapacity: bCap,
+      battery_number: bNo,
+      batterynumber: bNo,
+      frombusno: fromBus,
+      fromregno: fromBus,
+      tobusno: toBus,
+      toregno: toBus,
       createdAt: new Date()
     };
 
@@ -116,6 +231,32 @@ exports.updateBatteryItem = async (req, res) => {
     const updateData = { ...req.body };
     delete updateData._id;
     delete updateData.id;
+
+    if (updateData.battery_make || updateData.batterymake) {
+      const val = updateData.battery_make || updateData.batterymake;
+      updateData.battery_make = val;
+      updateData.batterymake = val;
+    }
+    if (updateData.battery_capacity || updateData.batterycapacity) {
+      const val = updateData.battery_capacity || updateData.batterycapacity;
+      updateData.battery_capacity = val;
+      updateData.batterycapacity = val;
+    }
+    if (updateData.battery_number || updateData.batterynumber) {
+      const val = updateData.battery_number || updateData.batterynumber;
+      updateData.battery_number = val;
+      updateData.batterynumber = val;
+    }
+    if (updateData.frombusno || updateData.fromregno) {
+      const val = updateData.frombusno || updateData.fromregno;
+      updateData.frombusno = val;
+      updateData.fromregno = val;
+    }
+    if (updateData.tobusno || updateData.toregno) {
+      const val = updateData.tobusno || updateData.toregno;
+      updateData.tobusno = val;
+      updateData.toregno = val;
+    }
 
     await db.collection(targetCollection).updateOne(filter, { $set: updateData });
     res.json({ success: true, message: 'Battery record updated successfully' });
@@ -141,3 +282,4 @@ exports.deleteBatteryItem = async (req, res) => {
     res.status(500).json({ message: 'Failed to delete battery record' });
   }
 };
+

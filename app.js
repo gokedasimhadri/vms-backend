@@ -48,6 +48,24 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/files', express.static(path.join(__dirname, 'uploads')));
+app.use(express.static(path.join(__dirname, 'uploads')));
+
+// Dedicated uploaded file retriever handler (unauthenticated for public image/file viewing)
+const fs = require('fs');
+app.get(['/uploads/:filename', '/files/:filename'], (req, res, next) => {
+  try {
+    const rawFilename = req.params.filename || '';
+    const cleanFilename = path.basename(decodeURIComponent(rawFilename));
+    const filePath = path.join(__dirname, 'uploads', cleanFilename);
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
+    }
+  } catch (err) {
+    console.error('Error serving file:', err);
+  }
+  next();
+});
 
 app.use('/', indexRouter);
 app.use('/', authRouter);
