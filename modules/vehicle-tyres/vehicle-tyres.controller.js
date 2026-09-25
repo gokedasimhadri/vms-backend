@@ -7,7 +7,7 @@ exports.getVehicleTyresData = async (req, res) => {
     const db = mongoose.connection.db;
     const type = (req.query.type || 'tyres').toLowerCase();
     const isTrack = type === 'tracktyre' || type === 'track';
-    const targetCollection = type === 'status' ? 'tyrestatus' : (type === 'rebutton' || isTrack) ? 'rebuttontyres' : 'vehicletyres';
+    const targetCollection = type === 'status' ? 'tyrestatus' : (type === 'rebutton' || isTrack) ? 'replacedvehicle' : 'vehicletyres';
     const branchFilter = buildBranchFilter(req.user, req.query.branch);
 
     let query = { ...branchFilter };
@@ -29,7 +29,7 @@ exports.getVehicleTyresData = async (req, res) => {
       .toArray();
 
     if (isTrack) {
-      // If rebuttontyres is empty or search returns no docs, also check vehicletyres
+      // If replacedvehicle is empty or search returns no docs, also check vehicletyres
       if (docs.length === 0 && req.query.search) {
         const vtDocs = await db.collection('vehicletyres')
           .find(query)
@@ -43,8 +43,8 @@ exports.getVehicleTyresData = async (req, res) => {
         }));
       }
 
-      // Compute total shift counts for each tyre number across rebuttontyres and vehicletyres
-      const allRebuttonDocs = await db.collection('rebuttontyres').find({}).toArray();
+      // Compute total shift counts for each tyre number across replacedvehicle and vehicletyres
+      const allRebuttonDocs = await db.collection('replacedvehicle').find({}).toArray();
       const shiftCountMap = {};
       allRebuttonDocs.forEach(r => {
         const tNo = (r.tyreno || r.tyre_number || '').trim().toUpperCase();
@@ -73,11 +73,28 @@ exports.getVehicleTyresData = async (req, res) => {
       });
     }
 
+    const mappedDocs = docs.map(d => {
+      const omrVal = d.omr;
+      const cmrVal = d.cmr || d.removal;
+      let calcKms = d.totalkms;
+      if ((calcKms === undefined || calcKms === null || calcKms === '') && omrVal && cmrVal && !isNaN(Number(omrVal)) && !isNaN(Number(cmrVal))) {
+        calcKms = Number(cmrVal) - Number(omrVal);
+      }
+      return {
+        ...d,
+        cmr: cmrVal !== undefined && cmrVal !== null ? cmrVal : '-',
+        dateofreplacement: d.dateofreplacement || d.replacementdate || d.removedate || '-',
+        totalkms: calcKms !== undefined && calcKms !== null ? calcKms : '-',
+        status: d.status || (type === 'rebutton' ? 'Replaced' : 'Active'),
+        id: d._id.toString()
+      };
+    });
+
     res.json({
       type,
       collection: targetCollection,
-      count: docs.length,
-      data: docs.map(d => ({ ...d, id: d._id.toString() }))
+      count: mappedDocs.length,
+      data: mappedDocs
     });
   } catch (error) {
     console.error('Error fetching vehicle tyres data:', error);
@@ -90,7 +107,7 @@ exports.createVehicleTyreItem = async (req, res) => {
     const db = mongoose.connection.db;
     const t = (req.params.type || req.body.type || 'tyres').toLowerCase();
     const isTrack = t === 'tracktyre' || t === 'track';
-    const targetCollection = t === 'status' ? 'tyrestatus' : (t === 'rebutton' || isTrack) ? 'rebuttontyres' : 'vehicletyres';
+    const targetCollection = t === 'status' ? 'tyrestatus' : (t === 'rebutton' || isTrack) ? 'replacedvehicle' : 'vehicletyres';
 
     const data = {
       ...req.body,
@@ -111,7 +128,7 @@ exports.updateVehicleTyreItem = async (req, res) => {
     const { type, id } = req.params;
     const t = (type || '').toLowerCase();
     const isTrack = t === 'tracktyre' || t === 'track';
-    const targetCollection = t === 'status' ? 'tyrestatus' : (t === 'rebutton' || isTrack) ? 'rebuttontyres' : 'vehicletyres';
+    const targetCollection = t === 'status' ? 'tyrestatus' : (t === 'rebutton' || isTrack) ? 'replacedvehicle' : 'vehicletyres';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     const updateData = { ...req.body };
@@ -132,7 +149,7 @@ exports.deleteVehicleTyreItem = async (req, res) => {
     const { type, id } = req.params;
     const t = (type || '').toLowerCase();
     const isTrack = t === 'tracktyre' || t === 'track';
-    const targetCollection = t === 'status' ? 'tyrestatus' : (t === 'rebutton' || isTrack) ? 'rebuttontyres' : 'vehicletyres';
+    const targetCollection = t === 'status' ? 'tyrestatus' : (t === 'rebutton' || isTrack) ? 'replacedvehicle' : 'vehicletyres';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     await db.collection(targetCollection).deleteOne(filter);
@@ -142,3 +159,4 @@ exports.deleteVehicleTyreItem = async (req, res) => {
     res.status(500).json({ message: 'Failed to delete tyre record' });
   }
 };
+

@@ -12,7 +12,7 @@ const buildBranchFilter = (user, requestedBranch, branchField = 'branch') => {
   }
 
   // Administrators can view all branches or filter by any requested branch
-  if (user.role === 'ADMIN') {
+  if (user.role === 'ADMIN' || user.role === 'BRANCH_ADMIN') {
     if (requestedBranch && requestedBranch !== 'ALL' && requestedBranch !== 'College' && requestedBranch !== 'VMS') {
       return { [branchField]: requestedBranch };
     }
