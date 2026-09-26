@@ -18,7 +18,7 @@ exports.getServicesData = async (req, res) => {
     const db = mongoose.connection.db;
     const type = (req.query.type || 'dailymaintenance').toLowerCase();
     const targetCollection = getTargetCollection(type);
-    const branchFilter = buildBranchFilter(req.user, req.query.branch);
+    const branchFilter = await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     if (req.query.search) {

@@ -28,7 +28,7 @@ exports.getFuelsData = async (req, res) => {
     // suppliers & fuelfill can be global; others are branch scoped if branch is present
     const branchFilter = (type === 'suppliers' || type === 'fuelsuppliers' || type === 'fuel' || type === 'fuelfill' || type === 'bunkfillings')
       ? {}
-      : buildBranchFilter(req.user, req.query.branch);
+      : await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     if (req.query.search) {

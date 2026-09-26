@@ -18,7 +18,7 @@ exports.getOverview = async (req, res) => {
     // Update road tax and certificate alert statuses based on today's date (reference.js lines 9630, 10340, 11041, 11734)
     await updateCertificateStatuses(db, today);
 
-    const filter = branch && branch !== 'ALL' ? { branch } : {};
+    const filter = await buildBranchFilter(user, branch, db);
 
     // KMPL Performance: calculate Day-Wise only (reference.js line 5154)
     const kmplDateParam = req.query.kmplDate || req.query.date;
