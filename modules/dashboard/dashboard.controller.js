@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { buildBranchFilter } = require('../../utils/scope.helper');
 const {
   buildExpiryFilter,
   getTodayFormatted,
