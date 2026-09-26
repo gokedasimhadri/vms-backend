@@ -107,8 +107,14 @@ exports.getVehicleTripdata = async (req, res) => {
   try {
     const db = mongoose.connection.db;
 
+    const fromDate = req.query.fromDate;
+    const toDate = req.query.toDate;
+    console.log(fromDate);
+    console.log(toDate);
     // Daily rollover for active trip records in 'vehicletrip'
     const todayDate = moment().format('DD-MM-YYYY');
+    console.log("vehicle trip data");
+
     try {
       const docsToRollover = await db.collection('vehicletrip').find({ date: { $ne: todayDate } }).toArray();
       if (docsToRollover.length > 0) {
@@ -143,8 +149,8 @@ exports.getVehicleTripdata = async (req, res) => {
     if (req.user) {
       username = (req.user.username || "").toLowerCase();
 
-      console.log("USER:", req.user);
-      console.log("USERNAME:", username);
+      // console.log("USER:", req.user);
+      // console.log("USERNAME:", username);
 
       // VMS / VC -> access all branches
       if (username === "vms" || username === "vc") {
@@ -428,173 +434,249 @@ exports.getVehicleTripdata = async (req, res) => {
       );
     }
 
-    console.log("BRANCH FILTER:", branchFilter);
+    // console.log("BRANCH FILTER:", branchFilter);
 
     // --------------------------------------------------
-    // 2. BUILD MAIN QUERY
-    // --------------------------------------------------
-
-    let query = {
-      ...branchFilter
-    };
-
-    // --------------------------------------------------
-    // 3. SEARCH
-    // --------------------------------------------------
-
-    if (req.query.search) {
-      const search = req.query.search.trim();
-
-      if (search) {
-        const searchQuery = [
-          {
-            vehicleregno: {
-              $regex: search,
-              $options: "i"
-            }
-          },
-          {
-            regno: {
-              $regex: search,
-              $options: "i"
-            }
-          },
-          {
-            routename: {
-              $regex: search,
-              $options: "i"
-            }
-          },
-          {
-            route: {
-              $regex: search,
-              $options: "i"
-            }
-          },
-          {
-            society: {
-              $regex: search,
-              $options: "i"
-            }
-          },
-          {
-            branch: {
-              $regex: search,
-              $options: "i"
-            }
-          }
-        ];
-
-        if (query.$or) {
-          query.$and = [
-            { $or: query.$or },
-            { $or: searchQuery }
-          ];
-
-          delete query.$or;
-        } else {
-          query.$or = searchQuery;
-        }
-      }
-    }
-
-    // --------------------------------------------------
-    // 4. DATE FILTER
+    // 2. SEARCH & SUBTAB & DATE FILTERING
     // --------------------------------------------------
 
     const fromDateParam = req.query.fromDate || req.query.fromdate;
     const toDateParam = req.query.toDate || req.query.todate;
-    const reqDate =
-      req.query.date ||
-      req.query.uploaddate;
+    const reqDate = req.query.date || req.query.uploaddate;
+    const targetSubTab = (req.query.subTab || req.query.type || '').toLowerCase();
 
-    if (fromDateParam || toDateParam) {
-      delete query.uploaddate;
-    } else if (reqDate) {
-      // Explicit date requested
-      query.$or = [
-        { uploaddate: reqDate },
-        { date: reqDate }
-      ];
-    }
+    const isReportTab = targetSubTab === 'generatereport' || targetSubTab === 'report' || targetSubTab === 'vehicletripdata';
+    const isEntryTab = targetSubTab === 'entrydata' || targetSubTab === 'vehicletrip';
+    const hasDateRange = Boolean(fromDateParam || toDateParam);
 
-    // VMS / VC -> preserve old behavior
-    else if (username === "vms" || username === "vc") {
-      const today = moment().format("DD-MM-YYYY");
-
-      query.uploaddate = today;
-
-      console.log("VMS/VC DATE:", today);
-    }
-
-    // Other users -> latest available date
-    else {
-      const latestDoc = await db
-        .collection("vehicletripdata")
-        .findOne(
-          query,
-          {
-            sort: {
-              _id: -1
-            }
-          }
-        );
-
-      if (latestDoc && latestDoc.uploaddate) {
-        query.uploaddate = latestDoc.uploaddate;
-
-        console.log(
-          "LATEST UPLOAD DATE:",
-          latestDoc.uploaddate
-        );
+    let searchQuery = [];
+    if (req.query.search) {
+      const search = req.query.search.trim();
+      if (search) {
+        searchQuery = [
+          { vehicleregno: { $regex: search, $options: "i" } },
+          { regno: { $regex: search, $options: "i" } },
+          { routename: { $regex: search, $options: "i" } },
+          { route: { $regex: search, $options: "i" } },
+          { society: { $regex: search, $options: "i" } },
+          { branch: { $regex: search, $options: "i" } }
+        ];
       }
     }
-
-    console.log(
-      "FINAL QUERY:",
-      JSON.stringify(query, null, 2)
-    );
-
-    // --------------------------------------------------
-    // 5. FETCH DATA
-    // --------------------------------------------------
 
     const limit = Number(req.query.limit) || 1000;
-
     let docs = [];
-    try {
-      const tripQuery = { ...branchFilter };
-      if (req.query.search) {
-        const search = req.query.search.trim();
-        if (search) {
-          tripQuery.$or = [
-            { vehicleregno: { $regex: search, $options: 'i' } },
-            { regno: { $regex: search, $options: 'i' } },
-            { routename: { $regex: search, $options: 'i' } },
-            { route: { $regex: search, $options: 'i' } },
-            { society: { $regex: search, $options: 'i' } },
-            { branch: { $regex: search, $options: 'i' } }
-          ];
+
+    const parseDate = (dStr) => {
+      if (!dStr) return null;
+      const str = String(dStr).trim();
+      let m = moment(str, ['YYYY-MM-DD', 'DD-MM-YYYY', 'YYYY/MM/DD', 'DD/MM/YYYY'], true);
+      if (!m.isValid()) m = moment(str);
+      return m.isValid() ? m : null;
+    };
+
+    // A. ENTRY DATA TAB: Query active trip collection 'vehicletrip'
+    if (isEntryTab || (!isReportTab && !hasDateRange)) {
+      try {
+        const tripQuery = { ...branchFilter };
+        if (searchQuery.length > 0) {
+          tripQuery.$or = searchQuery;
         }
+
+        const effectiveFromDate = fromDateParam || moment().format('YYYY-MM-DD');
+        const effectiveToDate = toDateParam || moment().format('YYYY-MM-DD');
+        const fromM = parseDate(effectiveFromDate);
+        const toM = parseDate(effectiveToDate);
+
+        if (fromM && toM) {
+          const dateStrings = new Set();
+          const curr = fromM.clone().startOf('day');
+          const end = toM.clone().startOf('day');
+          let count = 0;
+          while (curr.isSameOrBefore(end) && count < 366) {
+            dateStrings.add(curr.format('YYYY-MM-DD'));
+            dateStrings.add(curr.format('DD-MM-YYYY'));
+            dateStrings.add(curr.format('DD/MM/YYYY'));
+            dateStrings.add(curr.format('YYYY/MM/DD'));
+            curr.add(1, 'day');
+            count++;
+          }
+          const dateStrArr = Array.from(dateStrings);
+          const fromDateObj = fromM.clone().startOf('day').toDate();
+          const toDateObj = toM.clone().endOf('day').toDate();
+
+          const dateConditions = [
+            { uploaddate: { $in: dateStrArr } },
+            { date: { $in: dateStrArr } },
+            { uploaddate: { $type: "date", $gte: fromDateObj, $lte: toDateObj } },
+            { date: { $type: "date", $gte: fromDateObj, $lte: toDateObj } }
+          ];
+
+          if (tripQuery.$or) {
+            tripQuery.$and = [{ $or: tripQuery.$or }, { $or: dateConditions }];
+            delete tripQuery.$or;
+          } else {
+            tripQuery.$or = dateConditions;
+          }
+        }
+
+        const tripDocs = await db.collection("vehicletrip").find(tripQuery).sort({ _id: -1 }).toArray();
+        if (tripDocs && tripDocs.length > 0) {
+          docs = tripDocs;
+        }
+      } catch (err) {
+        console.error("Error fetching vehicletrip records:", err);
       }
-      const tripDocs = await db.collection("vehicletrip").find(tripQuery).sort({ _id: -1 }).toArray();
-      if (tripDocs && tripDocs.length > 0) {
-        docs = tripDocs;
-      } else {
-        docs = await db.collection("vehicletripdata").find(query).sort({ _id: -1 }).limit(limit).toArray();
-      }
-    } catch (err) {
-      console.error("Error fetching trip records:", err);
-      docs = await db.collection("vehicletripdata").find(query).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
     }
 
-    console.log("MONGO DOC COUNT:", docs.length);
+    // B. GENERATE REPORT TAB (or fallback if vehicletrip empty and not strictly entrytab): Query 'vehicletripdata'
+    if (isReportTab || (docs.length === 0 && !isEntryTab)) {
+      try {
+        const reportQuery = { ...branchFilter };
+
+        if (searchQuery.length > 0) {
+          if (reportQuery.$or) {
+            reportQuery.$and = [{ $or: reportQuery.$or }, { $or: searchQuery }];
+            delete reportQuery.$or;
+          } else {
+            reportQuery.$or = searchQuery;
+          }
+        }
+
+        if (fromDateParam || toDateParam) {
+          const fromM = parseDate(fromDateParam);
+          const toM = parseDate(toDateParam);
+          const dateConditions = [];
+
+          if (fromM && toM) {
+            const dateStrings = new Set();
+            const curr = fromM.clone().startOf('day');
+            const end = toM.clone().startOf('day');
+            let count = 0;
+            while (curr.isSameOrBefore(end) && count < 366) {
+              dateStrings.add(curr.format('YYYY-MM-DD'));
+              dateStrings.add(curr.format('DD-MM-YYYY'));
+              dateStrings.add(curr.format('DD/MM/YYYY'));
+              dateStrings.add(curr.format('YYYY/MM/DD'));
+              curr.add(1, 'day');
+              count++;
+            }
+            const dateStrArr = Array.from(dateStrings);
+            const fromDateObj = fromM.clone().startOf('day').toDate();
+            const toDateObj = toM.clone().endOf('day').toDate();
+
+            dateConditions.push(
+              { uploaddate: { $in: dateStrArr } },
+              { date: { $in: dateStrArr } },
+              { uploaddate: { $type: "date", $gte: fromDateObj, $lte: toDateObj } },
+              { date: { $type: "date", $gte: fromDateObj, $lte: toDateObj } }
+            );
+          } else if (fromM) {
+            const dateStrings = new Set();
+            const curr = fromM.clone().startOf('day');
+            const end = moment().add(1, 'year').endOf('day');
+            let count = 0;
+            while (curr.isSameOrBefore(end) && count < 366) {
+              dateStrings.add(curr.format('YYYY-MM-DD'));
+              dateStrings.add(curr.format('DD-MM-YYYY'));
+              dateStrings.add(curr.format('DD/MM/YYYY'));
+              dateStrings.add(curr.format('YYYY/MM/DD'));
+              curr.add(1, 'day');
+              count++;
+            }
+            const dateStrArr = Array.from(dateStrings);
+            const fromDateObj = fromM.clone().startOf('day').toDate();
+            dateConditions.push(
+              { uploaddate: { $in: dateStrArr } },
+              { date: { $in: dateStrArr } },
+              { uploaddate: { $type: "date", $gte: fromDateObj } },
+              { date: { $type: "date", $gte: fromDateObj } }
+            );
+          } else if (toM) {
+            const dateStrings = new Set();
+            const curr = moment().subtract(1, 'year').startOf('day');
+            const end = toM.clone().startOf('day');
+            let count = 0;
+            while (curr.isSameOrBefore(end) && count < 366) {
+              dateStrings.add(curr.format('YYYY-MM-DD'));
+              dateStrings.add(curr.format('DD-MM-YYYY'));
+              dateStrings.add(curr.format('DD/MM/YYYY'));
+              dateStrings.add(curr.format('YYYY/MM/DD'));
+              curr.add(1, 'day');
+              count++;
+            }
+            const dateStrArr = Array.from(dateStrings);
+            const toDateObj = toM.clone().endOf('day').toDate();
+            dateConditions.push(
+              { uploaddate: { $in: dateStrArr } },
+              { date: { $in: dateStrArr } },
+              { uploaddate: { $type: "date", $lte: toDateObj } },
+              { date: { $type: "date", $lte: toDateObj } }
+            );
+          }
+
+          if (dateConditions.length > 0) {
+            if (reportQuery.$and) {
+              reportQuery.$and.push({ $or: dateConditions });
+            } else if (reportQuery.$or) {
+              reportQuery.$and = [{ $or: reportQuery.$or }, { $or: dateConditions }];
+              delete reportQuery.$or;
+            } else {
+              reportQuery.$or = dateConditions;
+            }
+          }
+        } else if (reqDate) {
+          const reqDateCond = [{ uploaddate: reqDate }, { date: reqDate }];
+          const mDate = parseDate(reqDate);
+          if (mDate) {
+            reqDateCond.push(
+              { uploaddate: mDate.format('YYYY-MM-DD') },
+              { date: mDate.format('YYYY-MM-DD') },
+              { uploaddate: mDate.format('DD-MM-YYYY') },
+              { date: mDate.format('DD-MM-YYYY') }
+            );
+          }
+          if (reportQuery.$and) {
+            reportQuery.$and.push({ $or: reqDateCond });
+          } else if (reportQuery.$or) {
+            reportQuery.$and = [{ $or: reportQuery.$or }, { $or: reqDateCond }];
+            delete reportQuery.$or;
+          } else {
+            reportQuery.$or = reqDateCond;
+          }
+        } else if (username === "vms" || username === "vc") {
+          const todayStr = moment().format("DD-MM-YYYY");
+          const todayIso = moment().format("YYYY-MM-DD");
+          const dateCond = [{ uploaddate: todayStr }, { uploaddate: todayIso }, { date: todayStr }, { date: todayIso }];
+          if (reportQuery.$and) {
+            reportQuery.$and.push({ $or: dateCond });
+          } else if (reportQuery.$or) {
+            reportQuery.$and = [{ $or: reportQuery.$or }, { $or: dateCond }];
+            delete reportQuery.$or;
+          } else {
+            reportQuery.$or = dateCond;
+          }
+        } else {
+          const latestDoc = await db.collection("vehicletripdata").findOne(reportQuery, { sort: { _id: -1 } });
+          if (latestDoc && (latestDoc.uploaddate || latestDoc.date)) {
+            const lDate = latestDoc.uploaddate || latestDoc.date;
+            reportQuery.$or = [{ uploaddate: lDate }, { date: lDate }];
+          }
+        }
+
+        docs = await db.collection("vehicletripdata").find(reportQuery).sort({ _id: -1 }).limit(limit).toArray();
+      } catch (err) {
+        console.error("Error fetching vehicletripdata records:", err);
+      }
+    }
+
+    // console.log("MONGO DOC COUNT:", docs.length);
 
     if (docs.length > 0) {
-      console.log(
-        "FIRST DOCUMENT:",
-        docs[0]
-      );
+      // console.log(
+      //   "FIRST DOCUMENT:",
+      //   docs[0]
+      // );
     }
 
     // --------------------------------------------------
@@ -607,16 +689,16 @@ exports.getVehicleTripdata = async (req, res) => {
       return String(reg).trim() !== '';
     });
 
-    console.log(
-      "VALID DOC COUNT:",
-      validDocs.length
-    );
+    // console.log(
+    //   "VALID DOC COUNT:",
+    //   validDocs.length
+    // );
 
     // --------------------------------------------------
     // 7. FORMAT RESPONSE
     // --------------------------------------------------
 
-    const formattedDocs = validDocs.map(d => {
+    let formattedDocs = validDocs.map(d => {
       const kmsValue =
         (
           d.kms !== undefined &&
@@ -790,13 +872,34 @@ exports.getVehicleTripdata = async (req, res) => {
       };
     });
 
+    const effectiveFromDate = fromDateParam || (isEntryTab ? moment().format('YYYY-MM-DD') : null);
+    const effectiveToDate = toDateParam || (isEntryTab ? moment().format('YYYY-MM-DD') : null);
+
+    if (effectiveFromDate || effectiveToDate) {
+      const fromM = parseDate(effectiveFromDate);
+      const toM = parseDate(effectiveToDate);
+      const fromIso = fromM ? fromM.format('YYYY-MM-DD') : null;
+      const toIso = toM ? toM.format('YYYY-MM-DD') : null;
+
+      formattedDocs = formattedDocs.filter(d => {
+        const dStr = d.date || d.uploaddate;
+        if (!dStr) return true;
+        const m = parseDate(dStr);
+        if (!m) return true;
+        const itemIso = m.format('YYYY-MM-DD');
+        if (fromIso && itemIso < fromIso) return false;
+        if (toIso && itemIso > toIso) return false;
+        return true;
+      });
+    }
+
     // --------------------------------------------------
     // 8. SEND RESPONSE
     // --------------------------------------------------
 
     return res.json({
       type: "trips",
-      collection: "vehicletripdata",
+      collection: isEntryTab ? "vehicletrip" : "vehicletripdata",
       count: formattedDocs.length,
       data: formattedDocs
     });
@@ -963,7 +1066,9 @@ exports.createVehicleItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const subType = req.params.type || 'branch';
-    const collName = getCollectionForType(subType);
+    const rawType = (subType || '').toLowerCase();
+    const isTripType = rawType === 'trips' || rawType === 'vehicletrip' || rawType === 'entrydata' || rawType === 'generatereport' || rawType === 'vehicletripdata';
+    const collName = isTripType ? 'vehicletrip' : getCollectionForType(subType);
 
     const data = {
       ...req.body,
@@ -972,7 +1077,6 @@ exports.createVehicleItem = async (req, res) => {
     delete data._id;
     delete data.id;
 
-    const rawType = (subType || '').toLowerCase();
     if (collName === 'vehiclemake') {
       if (data.make && !data.name) data.name = data.make;
       if (data.name && !data.make) data.make = data.name;
@@ -985,15 +1089,21 @@ exports.createVehicleItem = async (req, res) => {
         else if (rawType === 'lightmotor') data.type = 'VAN';
       }
     }
-    if (collName === 'vehicletrip') {
-      if (!data.regno && data.vehicleregno) data.regno = data.vehicleregno;
-      if (!data.vehicleregno && data.regno) data.vehicleregno = data.regno;
-      if (!data.route && data.routename) data.route = data.routename;
-      if (data.students !== undefined && data.studentsstrength === undefined) data.studentsstrength = data.students;
-      if (data.strength !== undefined && data.fixedstrength === undefined) data.fixedstrength = data.strength;
-      if (data.distanceinkms !== undefined && data.distance === undefined) data.distance = data.distanceinkms;
+    if (isTripType || collName === 'vehicletrip') {
+      const todayDate = moment().format('DD-MM-YYYY');
+      data.regno = data.regno || data.vehicleregno || data.vno || data.busnumber || '';
+      data.vehicleregno = data.regno;
+      data.route = data.route || data.routename || '';
+      data.routename = data.route;
+      data.date = data.date || data.uploaddate || todayDate;
+      data.uploaddate = data.uploaddate || data.date || todayDate;
+      data.students = data.students ?? data.studentsstrength ?? '';
+      data.studentsstrength = data.students;
+      data.strength = data.strength ?? data.fixedstrength ?? '';
+      data.fixedstrength = data.strength;
+      data.distance = data.distance ?? data.distanceinkms ?? '';
 
-      if ((data.kms === undefined || data.kms === null || data.kms === '') && data.cmr !== undefined && data.omr !== undefined) {
+      if ((data.kms === undefined || data.kms === null || data.kms === '') && data.cmr !== undefined && data.omr !== undefined && data.cmr !== '' && data.omr !== '') {
         const diff = Number(data.cmr) - Number(data.omr);
         if (!isNaN(diff)) data.kms = diff;
       }
@@ -1004,7 +1114,13 @@ exports.createVehicleItem = async (req, res) => {
       }
     }
 
-    const result = await db.collection(collName).insertOne(data);
+    let result;
+    if (isTripType) {
+      result = await db.collection('vehicletrip').insertOne(data);
+      await db.collection('vehicletripdata').insertOne({ ...data }).catch(() => {});
+    } else {
+      result = await db.collection(collName).insertOne(data);
+    }
     res.status(201).json({ success: true, id: result.insertedId, data });
   } catch (error) {
     console.error('Error creating vehicle record:', error);
@@ -1016,34 +1132,42 @@ exports.bulkCreateVehicleItems = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const subType = req.params.type || 'trips';
-    const collName = getCollectionForType(subType);
+    const rawType = (subType || '').toLowerCase();
+    const isTripType = rawType === 'trips' || rawType === 'vehicletrip' || rawType === 'entrydata' || rawType === 'generatereport' || rawType === 'vehicletripdata';
+    const collName = isTripType ? 'vehicletripdata' : getCollectionForType(subType);
     const records = req.body.records || (Array.isArray(req.body) ? req.body : []);
 
     if (!Array.isArray(records) || records.length === 0) {
       return res.status(400).json({ message: 'No valid records array provided' });
     }
 
+    const todayDate = moment().format('DD-MM-YYYY');
+
     const docsToInsert = records.map(r => {
       const item = { ...r, createdAt: new Date() };
       delete item._id;
       delete item.id;
 
-      if (collName === 'vehicletrip') {
+      if (isTripType || collName === 'vehicletrip' || collName === 'vehicletripdata') {
         item.society = item.society || '';
         item.branch = item.branch || '';
         item.regno = item.regno || item.vehicleregno || item.vno || item.busnumber || '';
         item.vehicleregno = item.regno;
         item.route = item.route || item.routename || '';
-        item.date = item.date || '';
+        item.routename = item.route;
+        item.date = item.date || item.uploaddate || todayDate;
+        item.uploaddate = item.uploaddate || item.date || todayDate;
         item.capacity = item.capacity !== undefined ? item.capacity : '';
-        item.studentsstrength = item.studentsstrength ?? item.students ?? '';
-        item.fixedstrength = item.fixedstrength ?? item.strength ?? '';
+        item.students = item.students ?? item.studentsstrength ?? '';
+        item.studentsstrength = item.students;
+        item.strength = item.strength ?? item.fixedstrength ?? '';
+        item.fixedstrength = item.strength;
         item.omr = item.omr !== undefined ? item.omr : '';
         item.cmr = item.cmr !== undefined ? item.cmr : '';
         item.distance = item.distance ?? item.distanceinkms ?? '';
         item.remarks = item.remarks || '';
 
-        if ((item.kms === undefined || item.kms === null || item.kms === '') && item.cmr !== undefined && item.omr !== undefined) {
+        if ((item.kms === undefined || item.kms === null || item.kms === '') && item.cmr !== undefined && item.omr !== undefined && item.cmr !== '' && item.omr !== '') {
           const diff = Number(item.cmr) - Number(item.omr);
           if (!isNaN(diff)) item.kms = diff;
         }
@@ -1052,14 +1176,32 @@ exports.bulkCreateVehicleItems = async (req, res) => {
         if (!isNaN(kmsNum) && !isNaN(distNum) && kmsNum > distNum) {
           item.result = `exceed${kmsNum - distNum}`;
         } else {
-          item.result = item.result || '';
+          item.result = item.result || r.result || '';
         }
       }
 
       return item;
     });
 
-    const result = await db.collection(collName).insertMany(docsToInsert);
+    let result;
+    if (isTripType) {
+      result = await db.collection('vehicletripdata').insertMany(docsToInsert);
+      
+      for (const item of docsToInsert) {
+        if (item.regno) {
+          const filter = { regno: item.regno };
+          if (item.branch) filter.branch = item.branch;
+          await db.collection('vehicletrip').updateOne(
+            filter,
+            { $set: item },
+            { upsert: true }
+          ).catch(err => console.error('Error upserting into vehicletrip:', err));
+        }
+      }
+    } else {
+      result = await db.collection(collName).insertMany(docsToInsert);
+    }
+
     res.status(201).json({
       success: true,
       count: result.insertedCount,
@@ -1075,7 +1217,9 @@ exports.updateVehicleItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const collName = getCollectionForType(type);
+    const rawType = (type || '').toLowerCase();
+    const isTripType = rawType === 'trips' || rawType === 'vehicletrip' || rawType === 'entrydata' || rawType === 'generatereport' || rawType === 'vehicletripdata';
+    const collName = isTripType ? 'vehicletrip' : getCollectionForType(type);
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     const updateData = { ...req.body };
@@ -1090,12 +1234,13 @@ exports.updateVehicleItem = async (req, res) => {
       if (!updateData.regno && updateData.vehicleregno) updateData.regno = updateData.vehicleregno;
       if (!updateData.vehicleregno && updateData.regno) updateData.vehicleregno = updateData.regno;
     }
-    if (collName === 'vehicletrip') {
+    if (isTripType || collName === 'vehicletrip') {
       if (!updateData.regno && updateData.vehicleregno) updateData.regno = updateData.vehicleregno;
       if (!updateData.vehicleregno && updateData.regno) updateData.vehicleregno = updateData.regno;
       if (!updateData.route && updateData.routename) updateData.route = updateData.routename;
+      if (!updateData.routename && updateData.route) updateData.routename = updateData.route;
 
-      if ((updateData.kms === undefined || updateData.kms === null || updateData.kms === '') && updateData.cmr !== undefined && updateData.omr !== undefined) {
+      if ((updateData.kms === undefined || updateData.kms === null || updateData.kms === '') && updateData.cmr !== undefined && updateData.omr !== undefined && updateData.cmr !== '' && updateData.omr !== '') {
         const diff = Number(updateData.cmr) - Number(updateData.omr);
         if (!isNaN(diff)) updateData.kms = diff;
       }
@@ -1103,10 +1248,17 @@ exports.updateVehicleItem = async (req, res) => {
       const distNum = Number(updateData.distance);
       if (!isNaN(kmsNum) && !isNaN(distNum) && kmsNum > distNum) {
         updateData.result = `exceed${kmsNum - distNum}`;
+      } else if (!isNaN(kmsNum) && !isNaN(distNum) && kmsNum <= distNum) {
+        updateData.result = '';
       }
     }
 
-    await db.collection(collName).updateOne(filter, { $set: updateData });
+    if (isTripType) {
+      await db.collection('vehicletrip').updateOne(filter, { $set: updateData }).catch(() => {});
+      await db.collection('vehicletripdata').updateOne(filter, { $set: updateData }).catch(() => {});
+    } else {
+      await db.collection(collName).updateOne(filter, { $set: updateData });
+    }
     res.json({ success: true, message: 'Vehicle record updated successfully' });
   } catch (error) {
     console.error('Error updating vehicle record:', error);
@@ -1118,10 +1270,17 @@ exports.deleteVehicleItem = async (req, res) => {
   try {
     const db = mongoose.connection.db;
     const { type, id } = req.params;
-    const collName = getCollectionForType(type);
+    const rawType = (type || '').toLowerCase();
+    const isTripType = rawType === 'trips' || rawType === 'vehicletrip' || rawType === 'entrydata' || rawType === 'generatereport' || rawType === 'vehicletripdata';
+    const collName = isTripType ? 'vehicletrip' : getCollectionForType(type);
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
-    await db.collection(collName).deleteOne(filter);
+    if (isTripType) {
+      await db.collection('vehicletrip').deleteOne(filter).catch(() => {});
+      await db.collection('vehicletripdata').deleteOne(filter).catch(() => {});
+    } else {
+      await db.collection(collName).deleteOne(filter);
+    }
     res.json({ success: true, message: 'Vehicle record deleted successfully' });
   } catch (error) {
     console.error('Error deleting vehicle record:', error);
