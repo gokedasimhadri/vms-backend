@@ -41,7 +41,7 @@ const usernameBranchMap = {
   adcongole: { branch: /ONGOLE/i },
   adcvzm: { branch: /VIZIANAGARAM/i },
   adcmtm: { branch: /MATCHILI PATNAM/i },
-  adcsnr: { branch: /VIJAYAWADA/i },
+  adcsnr: { branch: /VIZIANAGARAM/i },
   aus: { branch: /UNIVERSITY/i },
   adctnk: { branch: /TANUKU/i },
   adchbg: { branch: /HABSIGUDA/i },
@@ -97,14 +97,7 @@ const buildBranchFilter = async (user, requestedBranch, db = null, branchField =
     if (db) {
       const regNos = await getAdminVehicleRegNos(user, db);
       if (regNos.length > 0) {
-        return {
-          $or: [
-            { vehicleregno: { $in: regNos } },
-            { regno: { $in: regNos } },
-            { busno: { $in: regNos } },
-            { vehicleno: { $in: regNos } }
-          ]
-        };
+        return { vehicleregno: { $in: regNos } };
       }
     }
 
