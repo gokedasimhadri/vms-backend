@@ -24,7 +24,7 @@ exports.getVehiclesData = async (req, res) => {
     const collName = getCollectionForType(type);
 
     // Vehicle make is global; others are branch-scoped
-    const branchFilter = collName === 'vehiclemake' ? {} : buildBranchFilter(req.user, req.query.branch);
+    const branchFilter = collName === 'vehiclemake' ? {} : await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     const rawType = (type || '').toLowerCase();

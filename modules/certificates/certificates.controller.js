@@ -189,7 +189,7 @@ exports.getCertificatesData = async (req, res) => {
     const db = mongoose.connection.db;
     const type = (req.query.type || 'pollution').toLowerCase();
     const targetCollection = collectionMap[type] || 'pollution';
-    const branchFilter = buildBranchFilter(req.user, req.query.branch);
+    const branchFilter = await buildBranchFilter(req.user, req.query.branch, db);
 
     // If fetching roadtax data, update status based on today's date
     if (type === 'roadtax') {

@@ -31,7 +31,7 @@ exports.getBatteriesData = async (req, res) => {
     const type = (req.query.type || 'vehiclewise').toLowerCase();
     const isTrack = type === 'trackbattery' || type === 'track';
     const targetCollection = (type === 'reports' || isTrack) ? 'batterychangereport' : 'vehiclewisebattery';
-    const branchFilter = buildBranchFilter(req.user, req.query.branch);
+    const branchFilter = await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     if (req.query.search) {

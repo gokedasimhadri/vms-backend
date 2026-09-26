@@ -8,7 +8,7 @@ exports.getVehicleTyresData = async (req, res) => {
     const type = (req.query.type || 'tyres').toLowerCase();
     const isTrack = type === 'tracktyre' || type === 'track';
     const targetCollection = type === 'status' ? 'tyrestatus' : (type === 'rebutton' || isTrack) ? 'replacedvehicle' : 'vehicletyres';
-    const branchFilter = buildBranchFilter(req.user, req.query.branch);
+    const branchFilter = await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     if (req.query.search) {

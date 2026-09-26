@@ -28,7 +28,7 @@ exports.getStaffData = async (req, res) => {
     // Designation is global, others are branch-scoped
     const branchFilter = collName === 'Designation'
       ? {}
-      : buildBranchFilter(req.user, req.query.branch);
+      : await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     if (req.query.search) {

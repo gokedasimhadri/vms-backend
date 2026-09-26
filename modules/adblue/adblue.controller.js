@@ -17,7 +17,7 @@ exports.getAdBlueData = async (req, res) => {
 
     const branchFilter = (type === 'adblue' || type === 'adbluebunk')
       ? {}
-      : buildBranchFilter(req.user, req.query.branch);
+      : await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
     if (req.query.search) {
