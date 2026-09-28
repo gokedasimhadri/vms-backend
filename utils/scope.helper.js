@@ -97,7 +97,14 @@ const buildBranchFilter = async (user, requestedBranch, db = null, branchField =
     if (db) {
       const regNos = await getAdminVehicleRegNos(user, db);
       if (regNos.length > 0) {
-        return { vehicleregno: { $in: regNos } };
+        return {
+          $or: [
+            { busnumber: { $in: regNos } },
+            { regno: { $in: regNos } },
+            { vehicleregno: { $in: regNos } },
+            { vehicleno: { $in: regNos } }
+          ]
+        };
       }
     }
 

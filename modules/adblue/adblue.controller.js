@@ -22,12 +22,16 @@ exports.getAdBlueData = async (req, res) => {
     let query = { ...branchFilter };
     if (req.query.search) {
       const search = req.query.search.trim();
-      query.$or = [
-        { regno: { $regex: search, $options: 'i' } },
-        { vehicleregno: { $regex: search, $options: 'i' } },
-        { drivername: { $regex: search, $options: 'i' } },
-        { bunkname: { $regex: search, $options: 'i' } }
-      ];
+      const searchFilter = {
+        $or: [
+          { regno: { $regex: search, $options: 'i' } },
+          { vehicleregno: { $regex: search, $options: 'i' } },
+          { busnumber: { $regex: search, $options: 'i' } },
+          { drivername: { $regex: search, $options: 'i' } },
+          { bunkname: { $regex: search, $options: 'i' } }
+        ]
+      };
+      query = branchFilter.$or ? { $and: [branchFilter, searchFilter] } : { ...branchFilter, ...searchFilter };
     }
 
     const docs = await db.collection(targetCollection)
