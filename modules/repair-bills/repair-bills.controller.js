@@ -13,14 +13,18 @@ exports.getRepairBillsData = async (req, res) => {
     let query = { ...branchFilter };
     if (req.query.search) {
       const search = req.query.search.trim();
-      query.$or = [
-        { busnumber: { $regex: search, $options: 'i' } },
-        { vehicleregno: { $regex: search, $options: 'i' } },
-        { vouchernumber: { $regex: search, $options: 'i' } },
-        { vendorname: { $regex: search, $options: 'i' } },
-        { materialinformation: { $regex: search, $options: 'i' } },
-        { materialinfo: { $regex: search, $options: 'i' } }
-      ];
+      const searchFilter = {
+        $or: [
+          { busnumber: { $regex: search, $options: 'i' } },
+          { vehicleregno: { $regex: search, $options: 'i' } },
+          { regno: { $regex: search, $options: 'i' } },
+          { vouchernumber: { $regex: search, $options: 'i' } },
+          { vendorname: { $regex: search, $options: 'i' } },
+          { materialinformation: { $regex: search, $options: 'i' } },
+          { materialinfo: { $regex: search, $options: 'i' } }
+        ]
+      };
+      query = branchFilter.$or ? { $and: [branchFilter, searchFilter] } : { ...branchFilter, ...searchFilter };
     }
 
     if (req.query.fromDate || req.query.toDate) {
