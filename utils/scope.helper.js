@@ -102,7 +102,12 @@ const buildBranchFilter = async (user, requestedBranch, db = null, branchField =
             { busnumber: { $in: regNos } },
             { regno: { $in: regNos } },
             { vehicleregno: { $in: regNos } },
-            { vehicleno: { $in: regNos } }
+            { vehicleno: { $in: regNos } },
+            { busno: { $in: regNos } },
+            { fromregno: { $in: regNos } },
+            { toregno: { $in: regNos } },
+            { frombusno: { $in: regNos } },
+            { tobusno: { $in: regNos } }
           ]
         };
       }

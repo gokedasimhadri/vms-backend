@@ -34,28 +34,49 @@ exports.getBusBreakdownData = async (req, res) => {
       return !!(bus || driver || place || comp);
     });
 
+    // Build vehicle map for metadata lookup (society)
+    const vehicleDocs = await db.collection('branchvehicle')
+      .find({})
+      .project({ vehicleregno: 1, regno: 1, busno: 1, vehicleno: 1, society: 1, Society: 1, branch: 1 })
+      .toArray();
+
+    const vehicleMap = {};
+    vehicleDocs.forEach(v => {
+      const reg = (v.vehicleregno || v.regno || v.busno || v.vehicleno || '').trim().toUpperCase();
+      if (reg) {
+        vehicleMap[reg] = {
+          society: v.society || v.Society || '',
+          branch: v.branch || ''
+        };
+      }
+    });
+
     const mappedDocs = validDocs.map(d => {
-      const bus = d.busno || d.vehicleno || d.vehicleregno || d.regno || '-';
+      const bus = (d.busno || d.vehicleno || d.vehicleregno || d.regno || '').trim();
+      const regKey = bus.toUpperCase();
+      const meta = vehicleMap[regKey] || {};
+      const societyVal = (d.society && d.society !== 'null') ? d.society : (meta.society || '-');
+
       const driver = d.drivername || d.driver || d.staffname || '-';
       const phone = d.driverphoneno || d.driverphone || d.phone || '-';
       const place = d.breakedownplace || d.breakdownplace || d.place || '-';
       const comp = d.complaint || d.natureofcomplaint || d.nature_of_complaint || '-';
-      const msgTime = d.messagetime || d.message_received_time || d.messagereceivetime || d.messageReceivedTime || '-';
-      const assignTime = d.assignedtime || d.work_assign_time || d.workassignedtime || d.workAssignedTime || '-';
-      const compTime = d.completedtime || d.work_complete_time || d.workcompletedtime || d.workCompletedTime || '-';
+      const msgTime = d.message_received_time || d.messagetime || d.messagereceivetime || d.messageReceivedTime || '-';
+      const assignTime = d.work_assign_time || d.assignedtime || d.workassignedtime || d.workAssignedTime || '-';
+      const compTime = d.work_complete_time || d.completedtime || d.workcompletedtime || d.workCompletedTime || '-';
       const status = d.status || d.workstatus || d.work_status || 'Completed';
-      const spareParts = d.spareparts || d.spare_part || d.sparepartsutilised || d.spare_parts || '-';
-      const spareAmt = d.sparepartamount !== undefined && d.sparepartamount !== null ? d.sparepartamount : (d.spare_part_amount !== undefined && d.spare_part_amount !== null ? d.spare_part_amount : (d.spartpartamount !== undefined && d.spartpartamount !== null ? d.spartpartamount : '-'));
-      const travelAmt = d.travellingallowance !== undefined && d.travellingallowance !== null ? d.travellingallowance : (d.travel_allowance !== undefined && d.travel_allowance !== null ? d.travel_allowance : '-');
-      const foodAmt = d.foodallowance !== undefined && d.foodallowance !== null ? d.foodallowance : (d.food_allowance !== undefined && d.food_allowance !== null ? d.food_allowance : '-');
-      const workersCount = d.noofworkers !== undefined && d.noofworkers !== null ? d.noofworkers : (Array.isArray(d.workers) ? d.workers.filter(w => w && (w.worker || w.workername || w.worker_designation)).length : '-');
-      const total = d.totalamount !== undefined && d.totalamount !== null ? d.totalamount : (d.amount !== undefined && d.amount !== null ? d.amount : '-');
+      const spareParts = d.spare_part || d.spareparts || d.sparepartsutilised || d.spare_parts || 'NO';
+      const spareAmt = (d.spare_part_amount !== undefined && d.spare_part_amount !== null && d.spare_part_amount !== -2) ? d.spare_part_amount : (d.sparepartamount !== undefined && d.sparepartamount !== null ? d.sparepartamount : 0);
+      const travelAmt = (d.travel_allowance !== undefined && d.travel_allowance !== null) ? d.travel_allowance : (d.travellingallowance !== undefined && d.travellingallowance !== null ? d.travellingallowance : 0);
+      const foodAmt = (d.food_allowance !== undefined && d.food_allowance !== null) ? d.food_allowance : (d.foodallowance !== undefined && d.foodallowance !== null ? d.foodallowance : 0);
+      const workersCount = (Array.isArray(d.workers)) ? d.workers.filter(w => w && (w.worker || w.workername || w.worker_designation)).length : (d.noofworkers !== undefined && d.noofworkers !== null ? d.noofworkers : 0);
+      const total = d.totalamount !== undefined && d.totalamount !== null ? d.totalamount : (d.amount !== undefined && d.amount !== null ? d.amount : 0);
 
       return {
         ...d,
-        busno: bus,
-        vehicleno: bus,
-        society: d.society || '-',
+        busno: bus || '-',
+        vehicleno: bus || '-',
+        society: societyVal,
         branch: d.branch || '-',
         drivername: driver,
         driverphoneno: phone,
