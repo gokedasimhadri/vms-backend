@@ -47,10 +47,101 @@ exports.getFuelsData = async (req, res) => {
       ];
     }
 
-    const docs = await db.collection(targetCollection)
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isBusFillType = targetCollection === 'busfill' || targetCollection === 'adbluebusfill';
+    const fromDate = req.query.fromDate || req.query.fromdate || (isBusFillType ? todayStr : null);
+    const toDate = req.query.toDate || req.query.todate || (isBusFillType ? todayStr : null);
+
+    const parseIso = (val) => {
+      if (!val) return null;
+      const str = String(val).trim();
+      if (!str || ['null', 'undefined', 'invalid date'].includes(str.toLowerCase())) return null;
+      const ddmmyyyy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}`;
+      const yyyymmdd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+      if (yyyymmdd) return `${yyyymmdd[1]}-${yyyymmdd[2].padStart(2, '0')}-${yyyymmdd[3].padStart(2, '0')}`;
+      const dt = new Date(str);
+      if (!isNaN(dt.getTime())) {
+        return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+      }
+      return null;
+    };
+
+    const fromStr = parseIso(fromDate);
+    const toStr = parseIso(toDate);
+
+    if (fromStr || toStr) {
+      let datesListIso = [];
+      let datesListDdmmyyyy = [];
+
+      if (fromStr && toStr) {
+        let curr = new Date(fromStr + 'T00:00:00.000Z');
+        const end = new Date(toStr + 'T00:00:00.000Z');
+        let safetyCounter = 0;
+        while (curr <= end && safetyCounter < 400) {
+          const y = curr.getUTCFullYear();
+          const m = String(curr.getUTCMonth() + 1).padStart(2, '0');
+          const d = String(curr.getUTCDate()).padStart(2, '0');
+          datesListIso.push(`${y}-${m}-${d}`);
+          datesListDdmmyyyy.push(`${d}-${m}-${y}`);
+          curr.setUTCDate(curr.getUTCDate() + 1);
+          safetyCounter++;
+        }
+      } else if (fromStr) {
+        const [y, m, d] = fromStr.split('-');
+        datesListIso.push(fromStr);
+        datesListDdmmyyyy.push(`${d}-${m}-${y}`);
+      } else if (toStr) {
+        const [y, m, d] = toStr.split('-');
+        datesListIso.push(toStr);
+        datesListDdmmyyyy.push(`${d}-${m}-${y}`);
+      }
+
+      const allDateStrings = Array.from(new Set([...datesListIso, ...datesListDdmmyyyy]));
+      const dateConditions = [];
+
+      if (allDateStrings.length > 0) {
+        dateConditions.push({ date: { $in: allDateStrings } });
+        dateConditions.push({ filldate: { $in: allDateStrings } });
+        dateConditions.push({ billdate: { $in: allDateStrings } });
+        dateConditions.push({ date_dt: { $in: allDateStrings } });
+      }
+
+      const startMs = fromStr ? new Date(`${fromStr}T00:00:00.000Z`).getTime() - (24 * 3600 * 1000) : 0;
+      const endMs = toStr ? new Date(`${toStr}T23:59:59.999Z`).getTime() + (24 * 3600 * 1000) : 4102444800000;
+      const tsCond = {};
+      if (fromStr) tsCond.$gte = startMs;
+      if (toStr) tsCond.$lte = endMs;
+      dateConditions.push({ Timestamp: tsCond });
+
+      const dateOrQuery = { $or: dateConditions };
+      if (query.$or) {
+        query = { $and: [query, dateOrQuery] };
+      } else {
+        query = { ...query, ...dateOrQuery };
+      }
+    }
+
+    let docs = await db.collection(targetCollection)
       .find(query)
-      .sort({ _id: -1 })
+      .sort({ Timestamp: 1, _id: 1 })
       .toArray();
+
+    if (fromStr || toStr) {
+      docs = docs.filter(d => {
+        let docDate = parseIso(d.date) || parseIso(d.filldate) || parseIso(d.billdate) || parseIso(d.date_dt) || parseIso(d.createdAt);
+        if (!docDate && d.Timestamp) {
+          const dt = new Date(d.Timestamp);
+          if (!isNaN(dt.getTime())) {
+            docDate = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+          }
+        }
+        if (!docDate) return true;
+        if (fromStr && docDate < fromStr) return false;
+        if (toStr && docDate > toStr) return false;
+        return true;
+      });
+    }
 
     const mappedDocs = docs.map(d => {
       const id = d._id.toString();
@@ -111,15 +202,43 @@ exports.getFuelsData = async (req, res) => {
       }
 
       // Default: busfill
+      const rateVal = d.rate || d.frate || '';
+      const qtyVal = d.quantity || d.fquantity || d.filled_Qty || '';
+      const totalVal = (d.total !== undefined && d.total !== null && d.total !== '')
+        ? d.total
+        : ((d.totalrate !== undefined && d.totalrate !== null && d.totalrate !== '')
+          ? d.totalrate
+          : (d.trate || ''));
+      
+      let formattedTotal = totalVal;
+      if (totalVal !== '' && totalVal !== null && !isNaN(Number(totalVal))) {
+        formattedTotal = Number(totalVal).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+      }
+
       return {
         ...d,
         id,
-        token_no: d.token_no || d.token || '',
-        token_issued_by: d.token_issued_by || d.issuedby || '',
-        filled_Qty: d.filled_Qty || d.fquantity || d.quantity || '',
-        capacity: d.capacity || d.fueltank || '',
-        rate: d.rate || d.frate || '',
-        totalrate: d.totalrate || d.total || ''
+        type: d.type || d.vehicletype || 'Own Vehicle',
+        model: d.model || '',
+        vehicleregno: d.vehicleregno || d.regno || '',
+        regno: d.regno || d.vehicleregno || '',
+        society: d.society || '',
+        branch: d.branch || '',
+        drivername: d.drivername || '',
+        fuelsupplier: d.fuelsupplier || d.bunksupplier || d.supplier || '',
+        date: d.date || d.filldate || '',
+        rate: rateVal ? (isNaN(Number(rateVal)) ? rateVal : Number(rateVal).toFixed(2)) : '',
+        quantity: qtyVal ? (isNaN(Number(qtyVal)) ? qtyVal : Number(qtyVal).toFixed(2)) : '',
+        total: formattedTotal,
+        totalrate: formattedTotal,
+        tokenno: d.tokenno || d.token_no || d.token || '',
+        tokenissuedby: d.tokenissuedby || d.token_issued_by || d.issuedby || '',
+        omr: d.omr ?? '',
+        cmr: d.cmr ?? '',
+        kms: d.kms ?? '',
+        avgkmpl: d.avgkmpl !== undefined && d.avgkmpl !== null && d.avgkmpl !== '' ? (typeof d.avgkmpl === 'number' ? d.avgkmpl.toFixed(1) : d.avgkmpl) : '',
+        grade: d.grade ?? '',
+        description: d.description ?? ''
       };
     });
 

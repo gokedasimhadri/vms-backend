@@ -88,14 +88,20 @@ const buildBranchFilter = async (user, requestedBranch, db = null, branchField =
     return {};
   }
 
-  // 2. BRANCH_ADMIN Role: Match exact legacy getAdminVehicleRegNos logic
+  // 2. BRANCH_ADMIN Role: Match assigned branches and assigned vehicle regNos
   if (user.role === 'BRANCH_ADMIN') {
     if (requestedBranch && requestedBranch !== 'ALL' && requestedBranch !== 'College' && requestedBranch !== 'VMS' && requestedBranch !== 'School') {
       return { [branchField]: requestedBranch };
     }
 
+    const userBranches = Array.isArray(user.branches) && user.branches.length > 0
+      ? user.branches
+      : (user.branch ? [user.branch] : []);
+    const assigned = userBranches.filter(b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS' && b !== 'School');
+
     if (db) {
       const regNos = await getAdminVehicleRegNos(user, db);
+      const branchConditions = assigned.length > 0 ? [{ [branchField]: { $in: assigned } }] : [];
       if (regNos.length > 0) {
         return {
           $or: [
@@ -110,13 +116,11 @@ const buildBranchFilter = async (user, requestedBranch, db = null, branchField =
             { tobusno: { $in: regNos } }
           ]
         };
+      } else if (branchConditions.length > 0) {
+        return branchConditions[0];
       }
     }
 
-    const userBranches = Array.isArray(user.branches) && user.branches.length > 0
-      ? user.branches
-      : (user.branch ? [user.branch] : []);
-    const assigned = userBranches.filter(b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS' && b !== 'School');
     if (assigned.length > 0) {
       return { [branchField]: { $in: assigned } };
     }

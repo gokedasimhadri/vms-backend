@@ -25,10 +25,34 @@ exports.getStaffData = async (req, res) => {
       return res.json({ type, count: 0, data: [] });
     }
 
-    // Designation is global, others are branch-scoped
-    const branchFilter = collName === 'Designation'
-      ? {}
-      : await buildBranchFilter(req.user, req.query.branch, db);
+    const { getAdminVehicleRegNos } = require('../../utils/scope.helper');
+
+    // Designation is global
+    let branchFilter = {};
+    if (collName === 'Designation') {
+      branchFilter = {};
+    } else if (collName === 'busstaff' && req.user?.role === 'BRANCH_ADMIN') {
+      const requestedBranch = req.query.branch;
+      if (requestedBranch && requestedBranch !== 'ALL' && requestedBranch !== 'College' && requestedBranch !== 'VMS' && requestedBranch !== 'School') {
+        branchFilter = { branch: requestedBranch };
+      } else {
+        const regNos = await getAdminVehicleRegNos(req.user, db);
+        if (regNos.length > 0) {
+          branchFilter = {
+            $or: [
+              { vehicleno: { $in: regNos } },
+              { busnumber: { $in: regNos } },
+              { regno: { $in: regNos } },
+              { vehicleregno: { $in: regNos } }
+            ]
+          };
+        } else {
+          branchFilter = await buildBranchFilter(req.user, req.query.branch, null);
+        }
+      }
+    } else {
+      branchFilter = await buildBranchFilter(req.user, req.query.branch, null);
+    }
 
     let query = { ...branchFilter };
     if (req.query.search) {

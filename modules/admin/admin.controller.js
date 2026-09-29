@@ -79,7 +79,11 @@ exports.getAdminData = async (req, res) => {
     }
 
     if (normType === 'transfers' || normType === 'transfer') {
-      const docs = await db.collection('transfer').find(filter).limit(2000).toArray();
+      let transferFilter = {};
+      if (selectedBranch && selectedBranch !== 'ALL' && selectedBranch !== 'College' && selectedBranch !== 'VMS' && selectedBranch !== 'School') {
+        transferFilter = { $or: [{ branch: selectedBranch }, { transferbranch: selectedBranch }] };
+      }
+      const docs = await db.collection('transfer').find(transferFilter).limit(2000).toArray();
       return res.json({
         type: 'transfers',
         data: docs.map((d, i) => ({
@@ -101,7 +105,22 @@ exports.getAdminData = async (req, res) => {
     }
 
     if (normType === 'route_details' || normType === 'routedetails') {
-      const docs = await db.collection('routedetails').find(filter).limit(2000).toArray().catch(() => []);
+      let routeFilter = { ...filter };
+      if (!isAdmin && user.role === 'BRANCH_ADMIN' && (!selectedBranch || selectedBranch === 'ALL' || selectedBranch === 'College' || selectedBranch === 'VMS')) {
+        const { getAdminVehicleRegNos } = require('../../utils/scope.helper');
+        const regNos = await getAdminVehicleRegNos(user, db);
+        if (regNos.length > 0) {
+          routeFilter = {
+            $or: [
+              { regno: { $in: regNos } },
+              { vehicleregno: { $in: regNos } },
+              { vehicleno: { $in: regNos } },
+              { busnumber: { $in: regNos } }
+            ]
+          };
+        }
+      }
+      const docs = await db.collection('routedetails').find(routeFilter).limit(2000).toArray().catch(() => []);
       return res.json({
         type: 'route_details',
         data: docs.map((d, i) => ({

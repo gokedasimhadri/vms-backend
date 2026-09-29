@@ -27,6 +27,20 @@ exports.getVehiclesData = async (req, res) => {
     const branchFilter = collName === 'vehiclemake' ? {} : await buildBranchFilter(req.user, req.query.branch, db);
 
     let query = { ...branchFilter };
+
+    if (collName === 'branchvehicle' && req.user?.role === 'BRANCH_ADMIN' && req.user?.branch && req.user.branch !== 'ALL' && req.user.branch !== 'VMS') {
+      const assignedBranches = (req.user.branches || [req.user.branch]).filter(b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS');
+      const reqBranch = req.query.branch;
+      if (!reqBranch || reqBranch === 'ALL' || reqBranch === 'College' || reqBranch === 'VMS' || reqBranch === 'School') {
+        query = {
+          branch: { $in: assignedBranches },
+          category: req.user.branch
+        };
+      } else {
+        query.category = req.user.branch;
+      }
+    }
+
     const rawType = (type || '').toLowerCase();
     if (rawType === 'heavymotor') {
       query.type = 'BUS';
@@ -56,9 +70,34 @@ exports.getVehiclesData = async (req, res) => {
     let docs = [];
     const limit = Number(req.query.limit) || 1000;
     if (collName === 'vehicletripdata') {
-      const docsTrip = await db.collection('vehicletrip').find(query).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
-      const docsData = await db.collection('vehicletripdata').find(query).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
-      docs = docsTrip.length > 0 ? docsTrip : docsData;
+      let tripQuery = { ...query };
+      if (req.user?.role === 'BRANCH_ADMIN') {
+        const reqBranch = req.query.branch;
+        if (!reqBranch || reqBranch === 'ALL' || reqBranch === 'College' || reqBranch === 'VMS' || reqBranch === 'School') {
+          const { getAdminVehicleRegNos } = require('../../utils/scope.helper');
+          const regNos = await getAdminVehicleRegNos(req.user, db);
+          if (regNos.length > 0) {
+            tripQuery = {
+              $or: [
+                { regno: { $in: regNos } },
+                { vehicleregno: { $in: regNos } },
+                { vehicleno: { $in: regNos } },
+                { busnumber: { $in: regNos } }
+              ]
+            };
+          }
+        }
+      }
+      const docsData = await db.collection('vehicletripdata').find(tripQuery).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+      const docsTrip = await db.collection('vehicletrip').find(tripQuery).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+      const combined = [...docsData, ...docsTrip];
+      const seen = new Set();
+      docs = combined.filter(d => {
+        const id = d._id ? d._id.toString() : null;
+        if (id && seen.has(id)) return false;
+        if (id) seen.add(id);
+        return true;
+      });
     } else {
       docs = await db.collection(collName)
         .find(query)
