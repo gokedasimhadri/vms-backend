@@ -47,10 +47,8 @@ exports.getFuelsData = async (req, res) => {
       ];
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const isBusFillType = targetCollection === 'busfill' || targetCollection === 'adbluebusfill';
-    const fromDate = req.query.fromDate || req.query.fromdate || (isBusFillType ? todayStr : null);
-    const toDate = req.query.toDate || req.query.todate || (isBusFillType ? todayStr : null);
+    const fromDate = req.query.fromDate || req.query.fromdate;
+    const toDate = req.query.toDate || req.query.todate;
 
     const parseIso = (val) => {
       if (!val) return null;

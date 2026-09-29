@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { buildBranchFilter } = require('../../utils/scope.helper');
 
 exports.getAdminData = async (req, res) => {
   try {
@@ -6,27 +7,9 @@ exports.getAdminData = async (req, res) => {
     const type = req.query.type || 'stages';
     const selectedBranch = req.query.branch;
 
-    // Branch scope from req.user (single source of truth from JWT)
     const user = req.user || {};
     const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.username === 'vms' || user.username === 'vmskkd' || user.username === 'vc' || user.branch === 'VMS' || user.branch === 'ALL';
-    const assignedBranches = (user.branches || (user.branch ? [user.branch] : [])).filter(
-      b => b && b !== 'ALL' && b !== 'College' && b !== 'VMS'
-    );
-
-    // Construct filter:
-    // Non-admins can only view their assigned branches; requested branch outside assigned set is ignored
-    let filter = {};
-    if (isAdmin) {
-      if (selectedBranch && selectedBranch !== 'ALL' && selectedBranch !== 'College' && selectedBranch !== 'VMS') {
-        filter = { branch: selectedBranch };
-      }
-    } else {
-      if (selectedBranch && assignedBranches.includes(selectedBranch)) {
-        filter = { branch: selectedBranch };
-      } else if (assignedBranches.length > 0) {
-        filter = { branch: { $in: assignedBranches } };
-      }
-    }
+    const filter = await buildBranchFilter(user, selectedBranch, db);
 
     const normType = (type || 'societies').toLowerCase();
 
