@@ -458,18 +458,20 @@ exports.getVehicleTripdata = async (req, res) => {
 
       // Fallback
       else {
-        branchFilter = buildBranchFilter(
+        branchFilter = await buildBranchFilter(
           req.user,
-          req.query.branch
+          req.query.branch,
+          db
         );
       }
     }
 
     // No logged-in user
     else {
-      branchFilter = buildBranchFilter(
+      branchFilter = await buildBranchFilter(
         null,
-        req.query.branch
+        req.query.branch,
+        db
       );
     }
 
