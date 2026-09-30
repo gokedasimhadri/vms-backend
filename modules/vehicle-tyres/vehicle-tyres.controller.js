@@ -74,15 +74,32 @@ exports.getVehicleTyresData = async (req, res) => {
     }
 
     const mappedDocs = docs.map(d => {
-      const omrVal = d.omr;
-      const cmrVal = d.cmr || d.removal;
-      let calcKms = d.totalkms;
-      if ((calcKms === undefined || calcKms === null || calcKms === '') && omrVal && cmrVal && !isNaN(Number(omrVal)) && !isNaN(Number(cmrVal))) {
-        calcKms = Number(cmrVal) - Number(omrVal);
+      let finalOmr = d.omr;
+      let finalCmr = d.cmr || d.removal;
+
+      if (type === 'rebutton') {
+        if (d.removal !== undefined && d.removal !== null && d.removal !== '') {
+          finalCmr = d.removal;
+          finalOmr = d.omr !== undefined && d.omr !== null ? d.omr : '';
+        } else if (d.cmr !== undefined && d.cmr !== null && d.cmr !== '') {
+          finalCmr = d.cmr;
+          finalOmr = d.omr !== undefined && d.omr !== null ? d.omr : '';
+        } else if (d.omr !== undefined && d.omr !== null && d.omr !== '') {
+          // If only omr is present in replacedvehicle doc, omr represents the Closing Meter Reading (CMR) at replacement
+          finalCmr = d.omr;
+          finalOmr = d.fittingomr !== undefined && d.fittingomr !== null ? d.fittingomr : '';
+        }
       }
+
+      let calcKms = d.totalkms;
+      if ((calcKms === undefined || calcKms === null || calcKms === '') && finalOmr && finalCmr && !isNaN(Number(finalOmr)) && !isNaN(Number(finalCmr))) {
+        calcKms = Number(finalCmr) - Number(finalOmr);
+      }
+
       return {
         ...d,
-        cmr: cmrVal !== undefined && cmrVal !== null ? cmrVal : '-',
+        omr: finalOmr !== undefined && finalOmr !== null ? finalOmr : '',
+        cmr: finalCmr !== undefined && finalCmr !== null ? finalCmr : '',
         dateofreplacement: d.dateofreplacement || d.replacementdate || d.removedate || '-',
         totalkms: calcKms !== undefined && calcKms !== null ? calcKms : '-',
         status: d.status || (type === 'rebutton' ? 'Replaced' : 'Active'),
