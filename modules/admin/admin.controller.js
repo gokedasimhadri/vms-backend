@@ -596,12 +596,12 @@ exports.searchVehicleInfo = async (req, res) => {
     const [infoDocs, branchDocs] = await Promise.all([
       db.collection('vehicleinfo')
         .find({ $or: [{ regno: rx }, { vehicleregno: rx }, { busno: rx }] })
-        .project({ regno: 1, vehicleregno: 1, busno: 1, make: 1, model: 1, type: 1, _id: 1 })
+        .project({ regno: 1, vehicleregno: 1, busno: 1, make: 1, model: 1, type: 1, society: 1, branch: 1, route: 1, staffname: 1, _id: 1 })
         .limit(30)
         .toArray(),
       db.collection('branchvehicle')
         .find({ $or: [{ regno: rx }, { vehicleregno: rx }, { busno: rx }] })
-        .project({ regno: 1, vehicleregno: 1, busno: 1, make: 1, model: 1, type: 1, _id: 1 })
+        .project({ regno: 1, vehicleregno: 1, busno: 1, make: 1, model: 1, type: 1, society: 1, branch: 1, route: 1, staffname: 1, _id: 1 })
         .limit(30)
         .toArray()
     ]);
@@ -610,7 +610,11 @@ exports.searchVehicleInfo = async (req, res) => {
       _id: d._id,
       regno: d.regno || d.vehicleregno || d.busno,
       make: d.make || '',
-      model: d.model || d.type || ''
+      model: d.model || d.type || '',
+      society: d.society || '',
+      branch: d.branch || '',
+      route: d.route || '',
+      staffname: d.staffname || ''
     })).filter(d => d.regno);
 
     const unique = [];
