@@ -141,9 +141,10 @@ exports.getFuelsData = async (req, res) => {
       });
     }
 
+
     const mappedDocs = docs.map(d => {
       const id = d._id.toString();
-      
+
       if (targetCollection === 'fuel') {
         return {
           ...d,
@@ -207,7 +208,7 @@ exports.getFuelsData = async (req, res) => {
         : ((d.totalrate !== undefined && d.totalrate !== null && d.totalrate !== '')
           ? d.totalrate
           : (d.trate || ''));
-      
+
       let formattedTotal = totalVal;
       if (totalVal !== '' && totalVal !== null && !isNaN(Number(totalVal))) {
         formattedTotal = Number(totalVal).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 });

@@ -7,6 +7,7 @@ exports.getAdminData = async (req, res) => {
     const type = req.query.type || 'stages';
     const selectedBranch = req.query.branch;
 
+
     const user = req.user || {};
     const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.username === 'vms' || user.username === 'vmskkd' || user.username === 'vc' || user.branch === 'VMS' || user.branch === 'ALL';
     const filter = await buildBranchFilter(user, selectedBranch, db);
