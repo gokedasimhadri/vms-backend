@@ -1,3 +1,8 @@
+if (!globalThis.crypto) {
+  const crypto = require('crypto');
+  globalThis.crypto = crypto.webcrypto || crypto;
+}
+
 require('dotenv').config();
 
 if (!process.env.JWT_SECRET) {
