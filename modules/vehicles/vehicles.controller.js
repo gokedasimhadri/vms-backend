@@ -126,14 +126,21 @@ exports.getVehiclesData = async (req, res) => {
         kms: (d.kms !== undefined && d.kms !== null && d.kms !== '')
           ? d.kms
           : (d.cmr !== undefined && d.omr !== undefined && !isNaN(Number(d.cmr) - Number(d.omr)) ? (Number(d.cmr) - Number(d.omr)) : ''),
-        result: d.result || ((() => {
-          const kmsVal = (d.kms !== undefined && d.kms !== null && d.kms !== '') ? Number(d.kms) : (d.cmr && d.omr ? Number(d.cmr) - Number(d.omr) : NaN);
-          const distVal = Number(d.distance ?? d.distanceinkms);
-          if (!isNaN(kmsVal) && !isNaN(distVal) && kmsVal > distVal) {
-            return `exceed${kmsVal - distVal}`;
-          }
-          return '';
-        })())
+        settlementmode: d.settlementmode || d.settlement || '',
+        settlement: d.settlement || d.settlementmode || '',
+        accidentplace: d.accidentplace || d.place || '',
+        place: d.place || d.accidentplace || '',
+        actiontaken: d.actiontaken || d.action || '',
+        action: d.action || d.actiontaken || '',
+        claimamount: d.claimamount !== undefined && d.claimamount !== null ? d.claimamount : (d.amount !== undefined && d.amount !== null ? d.amount : ''),
+        amount: d.amount !== undefined && d.amount !== null ? d.amount : (d.claimamount !== undefined && d.claimamount !== null ? d.claimamount : ''),
+        claimedfrom: d.claimedfrom || d.from || '',
+        from: d.from || d.claimedfrom || '',
+        accidentdescription: d.accidentdescription || d.description || '',
+        description: d.description || d.accidentdescription || '',
+        driverremarks: d.driverremarks || d.remarks || '',
+        remarks: d.remarks || d.driverremarks || '',
+        staffname: d.staffname || d.drivername || d.driver || ''
       }))
     });
   } catch (error) {
@@ -1130,6 +1137,22 @@ exports.createVehicleItem = async (req, res) => {
         else if (rawType === 'lightmotor') data.type = 'VAN';
       }
     }
+    if (collName === 'vehicleaccident') {
+      data.settlement = data.settlement || data.settlementmode || '';
+      data.settlementmode = data.settlementmode || data.settlement || '';
+      data.place = data.place || data.accidentplace || '';
+      data.accidentplace = data.accidentplace || data.place || '';
+      data.action = data.action || data.actiontaken || '';
+      data.actiontaken = data.actiontaken || data.action || '';
+      data.amount = data.amount ?? data.claimamount ?? '';
+      data.claimamount = data.claimamount ?? data.amount ?? '';
+      data.from = data.from || data.claimedfrom || '';
+      data.claimedfrom = data.claimedfrom || data.from || '';
+      data.description = data.description || data.accidentdescription || '';
+      data.accidentdescription = data.accidentdescription || data.description || '';
+      data.remarks = data.remarks || data.driverremarks || '';
+      data.driverremarks = data.driverremarks || data.remarks || '';
+    }
     if (isTripType || collName === 'vehicletrip') {
       const todayDate = moment().format('DD-MM-YYYY');
       data.regno = data.regno || data.vehicleregno || data.vno || data.busnumber || '';
@@ -1274,6 +1297,36 @@ exports.updateVehicleItem = async (req, res) => {
     if (collName === 'vehicleinfo') {
       if (!updateData.regno && updateData.vehicleregno) updateData.regno = updateData.vehicleregno;
       if (!updateData.vehicleregno && updateData.regno) updateData.vehicleregno = updateData.regno;
+    }
+    if (collName === 'vehicleaccident') {
+      if (updateData.settlementmode || updateData.settlement) {
+        updateData.settlement = updateData.settlement || updateData.settlementmode || '';
+        updateData.settlementmode = updateData.settlementmode || updateData.settlement || '';
+      }
+      if (updateData.accidentplace || updateData.place) {
+        updateData.place = updateData.place || updateData.accidentplace || '';
+        updateData.accidentplace = updateData.accidentplace || updateData.place || '';
+      }
+      if (updateData.actiontaken || updateData.action) {
+        updateData.action = updateData.action || updateData.actiontaken || '';
+        updateData.actiontaken = updateData.actiontaken || updateData.action || '';
+      }
+      if (updateData.claimamount !== undefined || updateData.amount !== undefined) {
+        updateData.amount = updateData.amount ?? updateData.claimamount ?? '';
+        updateData.claimamount = updateData.claimamount ?? updateData.amount ?? '';
+      }
+      if (updateData.claimedfrom || updateData.from) {
+        updateData.from = updateData.from || updateData.claimedfrom || '';
+        updateData.claimedfrom = updateData.claimedfrom || updateData.from || '';
+      }
+      if (updateData.accidentdescription || updateData.description) {
+        updateData.description = updateData.description || updateData.accidentdescription || '';
+        updateData.accidentdescription = updateData.accidentdescription || updateData.description || '';
+      }
+      if (updateData.driverremarks || updateData.remarks) {
+        updateData.remarks = updateData.remarks || updateData.driverremarks || '';
+        updateData.driverremarks = updateData.driverremarks || updateData.remarks || '';
+      }
     }
     if (isTripType || collName === 'vehicletrip') {
       if (!updateData.regno && updateData.vehicleregno) updateData.regno = updateData.vehicleregno;
