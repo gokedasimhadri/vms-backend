@@ -4,6 +4,9 @@ const vehiclesController = require('./vehicles.controller');
 
 router.get('/vehicles', vehiclesController.getVehiclesData);
 router.get('/getVehicleTripdata', vehiclesController.getVehicleTripdata);
+router.post('/getVehicleTripdata', vehiclesController.getVehicleTripdata);
+router.get('/gettingvehicletripdata', vehiclesController.getVehicleTripdata);
+router.post('/gettingvehicletripdata', vehiclesController.getVehicleTripdata);
 router.post('/vehicles/bulk/:type', vehiclesController.bulkCreateVehicleItems);
 router.post('/vehicles/:type', vehiclesController.createVehicleItem);
 router.put('/vehicles/:type/:id', vehiclesController.updateVehicleItem);

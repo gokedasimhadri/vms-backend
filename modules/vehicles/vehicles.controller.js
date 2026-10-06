@@ -153,13 +153,17 @@ exports.getVehicleTripdata = async (req, res) => {
   try {
     const db = mongoose.connection.db;
 
-    const fromDate = req.query.fromDate;
-    const toDate = req.query.toDate;
-    console.log(fromDate);
-    console.log(toDate);
+    const reqUser = req.user || req.session?.user;
+    const fromDateParam = req.query.fromDate || req.query.fromdate || req.query.fdate || req.body?.fromDate || req.body?.fromdate || req.body?.fdate;
+    const toDateParam = req.query.toDate || req.query.todate || req.query.tdate || req.body?.toDate || req.body?.todate || req.body?.tdate;
+    const reqDate = req.query.date || req.query.uploaddate || req.body?.date || req.body?.uploaddate;
+    const targetSubTab = (req.query.subTab || req.query.type || req.body?.subTab || req.body?.type || '').toLowerCase();
+    const searchVal = req.query.search || req.body?.search;
+
+    console.log("getVehicleTripdata fromDate:", fromDateParam, "toDate:", toDateParam);
+
     // Daily rollover for active trip records in 'vehicletrip'
     const todayDate = moment().format('DD-MM-YYYY');
-    console.log("vehicle trip data");
 
     try {
       const docsToRollover = await db.collection('vehicletrip').find({ date: { $ne: todayDate } }).toArray();
@@ -192,14 +196,15 @@ exports.getVehicleTripdata = async (req, res) => {
     // --------------------------------------------------
     // 1. USER / BRANCH FILTER
     // --------------------------------------------------
-    if (req.user) {
-      username = (req.user.username || "").toLowerCase();
+    if (reqUser) {
+      username = (reqUser.username || req.headers?.['x-user-username'] || "").toLowerCase();
+      const roleUpper = (reqUser.role || "").toUpperCase();
 
-      // console.log("USER:", req.user);
-      // console.log("USERNAME:", username);
-
-      // VMS / VC -> access all branches
-      if (username === "vms" || username === "vc") {
+      if (roleUpper === "BRANCH_ADMIN" && Array.isArray(reqUser.branches) && reqUser.branches.length > 0) {
+        branchFilter = { branch: { $in: reqUser.branches } };
+      }
+      // VMS / VC / VMSKKD -> access all branches
+      else if (username === "vms" || username === "vc" || username === "vmskkd") {
         branchFilter = {};
       }
 
@@ -377,7 +382,9 @@ exports.getVehicleTripdata = async (req, res) => {
       // Anakapali Degree
       else if (username === "adcakp") {
         branchFilter = {
-          branch: /ANAKAPALI-SES/i
+          branch: {
+            $in: [/ANAKAPALI-SES/i, /ANAKAPALI/i]
+          }
         };
       }
 
@@ -466,8 +473,8 @@ exports.getVehicleTripdata = async (req, res) => {
       // Fallback
       else {
         branchFilter = await buildBranchFilter(
-          req.user,
-          req.query.branch,
+          reqUser,
+          req.query.branch || req.body?.branch,
           db
         );
       }
@@ -477,29 +484,22 @@ exports.getVehicleTripdata = async (req, res) => {
     else {
       branchFilter = await buildBranchFilter(
         null,
-        req.query.branch,
+        req.query.branch || req.body?.branch,
         db
       );
     }
 
-    // console.log("BRANCH FILTER:", branchFilter);
-
     // --------------------------------------------------
     // 2. SEARCH & SUBTAB & DATE FILTERING
     // --------------------------------------------------
-
-    const fromDateParam = req.query.fromDate || req.query.fromdate;
-    const toDateParam = req.query.toDate || req.query.todate;
-    const reqDate = req.query.date || req.query.uploaddate;
-    const targetSubTab = (req.query.subTab || req.query.type || '').toLowerCase();
 
     const isReportTab = targetSubTab === 'generatereport' || targetSubTab === 'report' || targetSubTab === 'vehicletripdata';
     const isEntryTab = targetSubTab === 'entrydata' || targetSubTab === 'vehicletrip';
     const hasDateRange = Boolean(fromDateParam || toDateParam);
 
     let searchQuery = [];
-    if (req.query.search) {
-      const search = req.query.search.trim();
+    if (searchVal) {
+      const search = String(searchVal).trim();
       if (search) {
         searchQuery = [
           { vehicleregno: { $regex: search, $options: "i" } },
@@ -512,7 +512,7 @@ exports.getVehicleTripdata = async (req, res) => {
       }
     }
 
-    const limit = Number(req.query.limit) || 1000;
+    const limit = Number(req.query.limit || req.body?.limit) || 1000;
     let docs = [];
 
     const parseDate = (dStr) => {
@@ -531,40 +531,46 @@ exports.getVehicleTripdata = async (req, res) => {
           tripQuery.$or = searchQuery;
         }
 
-        const effectiveFromDate = fromDateParam || moment().format('YYYY-MM-DD');
-        const effectiveToDate = toDateParam || moment().format('YYYY-MM-DD');
-        const fromM = parseDate(effectiveFromDate);
-        const toM = parseDate(effectiveToDate);
+        if (hasDateRange) {
+          const fromM = parseDate(fromDateParam);
+          const toM = parseDate(toDateParam);
+          if (fromM && toM) {
+            const dateStrings = new Set();
+            const curr = fromM.clone().startOf('day');
+            const end = toM.clone().startOf('day');
+            let count = 0;
+            while (curr.isSameOrBefore(end) && count < 366) {
+              dateStrings.add(curr.format('YYYY-MM-DD'));
+              dateStrings.add(curr.format('DD-MM-YYYY'));
+              dateStrings.add(curr.format('DD/MM/YYYY'));
+              dateStrings.add(curr.format('YYYY/MM/DD'));
+              curr.add(1, 'day');
+              count++;
+            }
+            const dateStrArr = Array.from(dateStrings);
+            const fromDateObj = fromM.clone().startOf('day').toDate();
+            const toDateObj = toM.clone().endOf('day').toDate();
+            const ftime = fromM.clone().startOf('day').valueOf();
+            const ttime = toM.clone().endOf('day').valueOf();
+            const ftimeSec = Math.floor(ftime / 1000);
+            const ttimeSec = Math.floor(ttime / 1000);
 
-        if (fromM && toM) {
-          const dateStrings = new Set();
-          const curr = fromM.clone().startOf('day');
-          const end = toM.clone().startOf('day');
-          let count = 0;
-          while (curr.isSameOrBefore(end) && count < 366) {
-            dateStrings.add(curr.format('YYYY-MM-DD'));
-            dateStrings.add(curr.format('DD-MM-YYYY'));
-            dateStrings.add(curr.format('DD/MM/YYYY'));
-            dateStrings.add(curr.format('YYYY/MM/DD'));
-            curr.add(1, 'day');
-            count++;
-          }
-          const dateStrArr = Array.from(dateStrings);
-          const fromDateObj = fromM.clone().startOf('day').toDate();
-          const toDateObj = toM.clone().endOf('day').toDate();
+            const dateConditions = [
+              { Timestamp: { $gte: ftime, $lte: ttime } },
+              { Timestamp: { $gte: ftimeSec, $lte: ttimeSec } },
+              { Timestamp: { $gte: String(ftime), $lte: String(ttime) } },
+              { uploaddate: { $in: dateStrArr } },
+              { date: { $in: dateStrArr } },
+              { uploaddate_dt: { $gte: fromDateObj, $lte: toDateObj } },
+              { date_dt: { $gte: fromDateObj, $lte: toDateObj } }
+            ];
 
-          const dateConditions = [
-            { uploaddate: { $in: dateStrArr } },
-            { date: { $in: dateStrArr } },
-            { uploaddate: { $type: "date", $gte: fromDateObj, $lte: toDateObj } },
-            { date: { $type: "date", $gte: fromDateObj, $lte: toDateObj } }
-          ];
-
-          if (tripQuery.$or) {
-            tripQuery.$and = [{ $or: tripQuery.$or }, { $or: dateConditions }];
-            delete tripQuery.$or;
-          } else {
-            tripQuery.$or = dateConditions;
+            if (tripQuery.$or) {
+              tripQuery.$and = [{ $or: tripQuery.$or }, { $or: dateConditions }];
+              delete tripQuery.$or;
+            } else {
+              tripQuery.$or = dateConditions;
+            }
           }
         }
 
@@ -612,12 +618,19 @@ exports.getVehicleTripdata = async (req, res) => {
             const dateStrArr = Array.from(dateStrings);
             const fromDateObj = fromM.clone().startOf('day').toDate();
             const toDateObj = toM.clone().endOf('day').toDate();
+            const ftime = fromM.clone().startOf('day').valueOf();
+            const ttime = toM.clone().endOf('day').valueOf();
+            const ftimeSec = Math.floor(ftime / 1000);
+            const ttimeSec = Math.floor(ttime / 1000);
 
             dateConditions.push(
+              { Timestamp: { $gte: ftime, $lte: ttime } },
+              { Timestamp: { $gte: ftimeSec, $lte: ttimeSec } },
+              { Timestamp: { $gte: String(ftime), $lte: String(ttime) } },
               { uploaddate: { $in: dateStrArr } },
               { date: { $in: dateStrArr } },
-              { uploaddate: { $type: "date", $gte: fromDateObj, $lte: toDateObj } },
-              { date: { $type: "date", $gte: fromDateObj, $lte: toDateObj } }
+              { uploaddate_dt: { $gte: fromDateObj, $lte: toDateObj } },
+              { date_dt: { $gte: fromDateObj, $lte: toDateObj } }
             );
           } else if (fromM) {
             const dateStrings = new Set();
@@ -634,11 +647,16 @@ exports.getVehicleTripdata = async (req, res) => {
             }
             const dateStrArr = Array.from(dateStrings);
             const fromDateObj = fromM.clone().startOf('day').toDate();
+            const ftime = fromM.clone().startOf('day').valueOf();
+            const ftimeSec = Math.floor(ftime / 1000);
+
             dateConditions.push(
+              { Timestamp: { $gte: ftime } },
+              { Timestamp: { $gte: ftimeSec } },
               { uploaddate: { $in: dateStrArr } },
               { date: { $in: dateStrArr } },
-              { uploaddate: { $type: "date", $gte: fromDateObj } },
-              { date: { $type: "date", $gte: fromDateObj } }
+              { uploaddate_dt: { $gte: fromDateObj } },
+              { date_dt: { $gte: fromDateObj } }
             );
           } else if (toM) {
             const dateStrings = new Set();
@@ -655,11 +673,16 @@ exports.getVehicleTripdata = async (req, res) => {
             }
             const dateStrArr = Array.from(dateStrings);
             const toDateObj = toM.clone().endOf('day').toDate();
+            const ttime = toM.clone().endOf('day').valueOf();
+            const ttimeSec = Math.floor(ttime / 1000);
+
             dateConditions.push(
+              { Timestamp: { $lte: ttime } },
+              { Timestamp: { $lte: ttimeSec } },
               { uploaddate: { $in: dateStrArr } },
               { date: { $in: dateStrArr } },
-              { uploaddate: { $type: "date", $lte: toDateObj } },
-              { date: { $type: "date", $lte: toDateObj } }
+              { uploaddate_dt: { $lte: toDateObj } },
+              { date_dt: { $lte: toDateObj } }
             );
           }
 
@@ -677,7 +700,10 @@ exports.getVehicleTripdata = async (req, res) => {
           const reqDateCond = [{ uploaddate: reqDate }, { date: reqDate }];
           const mDate = parseDate(reqDate);
           if (mDate) {
+            const ftime = mDate.clone().startOf('day').valueOf();
+            const ttime = mDate.clone().endOf('day').valueOf();
             reqDateCond.push(
+              { Timestamp: { $gte: ftime, $lte: ttime } },
               { uploaddate: mDate.format('YYYY-MM-DD') },
               { date: mDate.format('YYYY-MM-DD') },
               { uploaddate: mDate.format('DD-MM-YYYY') },
@@ -692,27 +718,47 @@ exports.getVehicleTripdata = async (req, res) => {
           } else {
             reportQuery.$or = reqDateCond;
           }
-        } else if (username === "vms" || username === "vc") {
-          const todayStr = moment().format("DD-MM-YYYY");
-          const todayIso = moment().format("YYYY-MM-DD");
-          const dateCond = [{ uploaddate: todayStr }, { uploaddate: todayIso }, { date: todayStr }, { date: todayIso }];
-          if (reportQuery.$and) {
-            reportQuery.$and.push({ $or: dateCond });
-          } else if (reportQuery.$or) {
-            reportQuery.$and = [{ $or: reportQuery.$or }, { $or: dateCond }];
-            delete reportQuery.$or;
-          } else {
-            reportQuery.$or = dateCond;
-          }
-        } else {
-          const latestDoc = await db.collection("vehicletripdata").findOne(reportQuery, { sort: { _id: -1 } });
-          if (latestDoc && (latestDoc.uploaddate || latestDoc.date)) {
-            const lDate = latestDoc.uploaddate || latestDoc.date;
-            reportQuery.$or = [{ uploaddate: lDate }, { date: lDate }];
-          }
         }
 
-        docs = await db.collection("vehicletripdata").find(reportQuery).sort({ _id: -1 }).limit(limit).toArray();
+        const docsData = await db.collection("vehicletripdata").find(reportQuery).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+        const docsTrip = await db.collection("vehicletrip").find(reportQuery).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+
+        const combined = [...docsData, ...docsTrip];
+        const seen = new Set();
+        docs = combined.filter(d => {
+          const id = d._id ? d._id.toString() : null;
+          if (id && seen.has(id)) return false;
+          if (id) seen.add(id);
+          return true;
+        });
+
+        if (docs.length === 0 && !fromDateParam && !toDateParam) {
+          const fallbackQuery = { ...branchFilter };
+          if (searchQuery.length > 0) {
+            fallbackQuery.$or = searchQuery;
+          }
+          const latestDoc = await db.collection("vehicletripdata").findOne(fallbackQuery, { sort: { _id: -1 } }) || await db.collection("vehicletrip").findOne(fallbackQuery, { sort: { _id: -1 } });
+          if (latestDoc && (latestDoc.uploaddate || latestDoc.date)) {
+            const lDate = latestDoc.uploaddate || latestDoc.date;
+            const dateConds = [{ uploaddate: lDate }, { date: lDate }];
+            if (fallbackQuery.$or) {
+              fallbackQuery.$and = [{ $or: fallbackQuery.$or }, { $or: dateConds }];
+              delete fallbackQuery.$or;
+            } else {
+              fallbackQuery.$or = dateConds;
+            }
+            const lData = await db.collection("vehicletripdata").find(fallbackQuery).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+            const lTrip = await db.collection("vehicletrip").find(fallbackQuery).sort({ _id: -1 }).limit(limit).toArray().catch(() => []);
+            const combinedLatest = [...lData, ...lTrip];
+            const seenL = new Set();
+            docs = combinedLatest.filter(d => {
+              const id = d._id ? d._id.toString() : null;
+              if (id && seenL.has(id)) return false;
+              if (id) seenL.add(id);
+              return true;
+            });
+          }
+        }
       } catch (err) {
         console.error("Error fetching vehicletripdata records:", err);
       }
@@ -920,26 +966,7 @@ exports.getVehicleTripdata = async (req, res) => {
       };
     });
 
-    const effectiveFromDate = fromDateParam || (isEntryTab ? moment().format('YYYY-MM-DD') : null);
-    const effectiveToDate = toDateParam || (isEntryTab ? moment().format('YYYY-MM-DD') : null);
 
-    if (effectiveFromDate || effectiveToDate) {
-      const fromM = parseDate(effectiveFromDate);
-      const toM = parseDate(effectiveToDate);
-      const fromIso = fromM ? fromM.format('YYYY-MM-DD') : null;
-      const toIso = toM ? toM.format('YYYY-MM-DD') : null;
-
-      formattedDocs = formattedDocs.filter(d => {
-        const dStr = d.date || d.uploaddate;
-        if (!dStr) return true;
-        const m = parseDate(dStr);
-        if (!m) return true;
-        const itemIso = m.format('YYYY-MM-DD');
-        if (fromIso && itemIso < fromIso) return false;
-        if (toIso && itemIso > toIso) return false;
-        return true;
-      });
-    }
 
     // --------------------------------------------------
     // 8. SEND RESPONSE
