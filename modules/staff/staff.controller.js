@@ -63,7 +63,9 @@ exports.getStaffData = async (req, res) => {
         { name: { $regex: search, $options: 'i' } },
         { designation: { $regex: search, $options: 'i' } },
         { mobile: { $regex: search, $options: 'i' } },
-        { vehicleno: { $regex: search, $options: 'i' } }
+        { vehicleno: { $regex: search, $options: 'i' } },
+        { employeeid: { $regex: search, $options: 'i' } },
+        { empid: { $regex: search, $options: 'i' } }
       ];
     }
 
@@ -92,8 +94,14 @@ exports.createStaffItem = async (req, res) => {
     if (!collName) {
       return res.status(400).json({ message: 'Invalid staff category' });
     }
+    const body = { ...req.body };
+    if (body.profilepic && !body.pic) body.pic = body.profilepic;
+    if (body.pic && !body.profilepic) body.profilepic = body.pic;
+    if (body.employeeid && !body.empid) body.empid = body.employeeid;
+    if (body.empid && !body.employeeid) body.employeeid = body.empid;
+
     const payload = processImagePayload({
-      ...req.body,
+      ...body,
       createdAt: new Date()
     });
     const result = await db.collection(collName).insertOne(payload);
@@ -114,7 +122,13 @@ exports.updateStaffItem = async (req, res) => {
     }
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
-    const updateData = processImagePayload({ ...req.body });
+    const body = { ...req.body };
+    if (body.profilepic && !body.pic) body.pic = body.profilepic;
+    if (body.pic && !body.profilepic) body.profilepic = body.pic;
+    if (body.employeeid && !body.empid) body.empid = body.employeeid;
+    if (body.empid && !body.employeeid) body.employeeid = body.empid;
+
+    const updateData = processImagePayload(body);
     delete updateData._id;
     delete updateData.id;
 

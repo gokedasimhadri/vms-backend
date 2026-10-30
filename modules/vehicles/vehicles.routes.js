@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const vehiclesController = require('./vehicles.controller');
 
+router.get('/vehicles/master', vehiclesController.getVehicleMaster);
 router.get('/vehicles', vehiclesController.getVehiclesData);
 router.get('/getVehicleTripdata', vehiclesController.getVehicleTripdata);
 router.post('/getVehicleTripdata', vehiclesController.getVehicleTripdata);

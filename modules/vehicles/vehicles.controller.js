@@ -149,7 +149,92 @@ exports.getVehiclesData = async (req, res) => {
   }
 };
 
+/**
+ * GET /vehicles/master
+ * Returns one merged record per vehicle registration number, combining
+ * branchvehicle (society, branch, route, purchasedate, staffname) and
+ * vehicleinfo (model, make, type, capacity, fuel) data.
+ */
+exports.getVehicleMaster = async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+
+    // Fetch all branchvehicle records
+    const branchDocs = await db.collection('branchvehicle')
+      .find({}, { projection: { vehicleregno: 1, regno: 1, vehicleno: 1, busnumber: 1, society: 1, branch: 1, route: 1, routename: 1, purchasedate: 1, staffname: 1, drivername: 1, model: 1, make: 1, type: 1, capacity: 1, fuel: 1, expiredate: 1 } })
+      .toArray()
+      .catch(() => []);
+
+    // Fetch all vehicleinfo records
+    const infoDocs = await db.collection('vehicleinfo')
+      .find({}, { projection: { vehicleregno: 1, regno: 1, vehicleno: 1, society: 1, branch: 1, model: 1, make: 1, type: 1, capacity: 1, fuel: 1, purchasedate: 1, expiredate: 1, route: 1, routename: 1 } })
+      .toArray()
+      .catch(() => []);
+
+    // Build merged map: reg(uppercase) => merged object
+    const vehicleMap = new Map();
+
+    const mergeRecord = (map, doc) => {
+      const reg = (doc.vehicleregno || doc.regno || doc.vehicleno || doc.busnumber || '').trim().toUpperCase();
+      if (!reg) return;
+      const key = reg.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          vehicleregno: reg,
+          regno: reg,
+          society: doc.society || '',
+          branch: doc.branch || '',
+          model: doc.model || '',
+          make: doc.make || '',
+          type: doc.type || '',
+          capacity: doc.capacity || '',
+          fuel: doc.fuel || '',
+          purchasedate: doc.purchasedate || '',
+          expiredate: doc.expiredate || '',
+          route: doc.route || doc.routename || '',
+          routename: doc.routename || doc.route || '',
+          staffname: doc.staffname || doc.drivername || '',
+          drivername: doc.drivername || doc.staffname || '',
+        });
+      } else {
+        const existing = map.get(key);
+        map.set(key, {
+          ...existing,
+          vehicleregno: reg,
+          regno: reg,
+          // Prefer non-empty — branchvehicle wins for society/branch/route/staffname
+          society: existing.society || doc.society || '',
+          branch: existing.branch || doc.branch || '',
+          model: existing.model || doc.model || '',
+          make: existing.make || doc.make || '',
+          type: existing.type || doc.type || '',
+          capacity: existing.capacity || doc.capacity || '',
+          fuel: existing.fuel || doc.fuel || '',
+          purchasedate: existing.purchasedate || doc.purchasedate || '',
+          expiredate: existing.expiredate || doc.expiredate || '',
+          route: existing.route || doc.route || doc.routename || '',
+          routename: existing.routename || doc.routename || doc.route || '',
+          staffname: existing.staffname || doc.staffname || doc.drivername || '',
+          drivername: existing.drivername || doc.drivername || doc.staffname || '',
+        });
+      }
+    };
+
+    // Process vehicleinfo first, then branchvehicle (branchvehicle takes priority for society/branch)
+    infoDocs.forEach(doc => mergeRecord(vehicleMap, doc));
+    branchDocs.forEach(doc => mergeRecord(vehicleMap, doc));
+
+    const masterList = Array.from(vehicleMap.values());
+
+    res.json({ count: masterList.length, data: masterList });
+  } catch (error) {
+    console.error('Error fetching vehicle master list:', error);
+    res.status(500).json({ message: 'Error fetching vehicle master list' });
+  }
+};
+
 exports.getVehicleTripdata = async (req, res) => {
+
   try {
     const db = mongoose.connection.db;
 
@@ -1208,7 +1293,7 @@ exports.createVehicleItem = async (req, res) => {
     let result;
     if (isTripType) {
       result = await db.collection('vehicletrip').insertOne(data);
-      await db.collection('vehicletripdata').insertOne({ ...data }).catch(() => {});
+      await db.collection('vehicletripdata').insertOne({ ...data }).catch(() => { });
     } else {
       result = await db.collection(collName).insertOne(data);
     }
@@ -1277,7 +1362,7 @@ exports.bulkCreateVehicleItems = async (req, res) => {
     let result;
     if (isTripType) {
       result = await db.collection('vehicletripdata').insertMany(docsToInsert);
-      
+
       for (const item of docsToInsert) {
         if (item.regno) {
           const filter = { regno: item.regno };
@@ -1375,8 +1460,8 @@ exports.updateVehicleItem = async (req, res) => {
     }
 
     if (isTripType) {
-      await db.collection('vehicletrip').updateOne(filter, { $set: updateData }).catch(() => {});
-      await db.collection('vehicletripdata').updateOne(filter, { $set: updateData }).catch(() => {});
+      await db.collection('vehicletrip').updateOne(filter, { $set: updateData }).catch(() => { });
+      await db.collection('vehicletripdata').updateOne(filter, { $set: updateData }).catch(() => { });
     } else {
       await db.collection(collName).updateOne(filter, { $set: updateData });
     }
@@ -1397,8 +1482,8 @@ exports.deleteVehicleItem = async (req, res) => {
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
     if (isTripType) {
-      await db.collection('vehicletrip').deleteOne(filter).catch(() => {});
-      await db.collection('vehicletripdata').deleteOne(filter).catch(() => {});
+      await db.collection('vehicletrip').deleteOne(filter).catch(() => { });
+      await db.collection('vehicletripdata').deleteOne(filter).catch(() => { });
     } else {
       await db.collection(collName).deleteOne(filter);
     }

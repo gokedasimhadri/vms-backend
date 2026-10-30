@@ -330,3 +330,38 @@ exports.deleteFuelItem = async (req, res) => {
   }
 };
 
+exports.getLastReading = async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const { regno, subtab } = req.query;
+    if (!regno) {
+      return res.json({ success: true, lastCmr: null });
+    }
+    const cleanReg = String(regno).trim().replace(/[^a-zA-Z0-9]/g, '');
+    if (!cleanReg) {
+      return res.json({ success: true, lastCmr: null });
+    }
+    const regex = new RegExp(cleanReg.split('').join('[^a-zA-Z0-9]*'), 'i');
+    const targetCollection = (subtab === 'adblue' || subtab === 'adbluebusfill') ? 'AdBlueBusfill' : 'busfill';
+
+    const lastDoc = await db.collection(targetCollection)
+      .find({
+        $or: [{ regno: regex }, { vehicleregno: regex }],
+        cmr: { $exists: true, $ne: '' }
+      })
+      .sort({ _id: -1 })
+      .limit(1)
+      .toArray();
+
+    if (lastDoc && lastDoc.length > 0 && lastDoc[0].cmr) {
+      return res.json({ success: true, lastCmr: String(lastDoc[0].cmr), lastDoc: lastDoc[0] });
+    }
+
+    return res.json({ success: true, lastCmr: null });
+  } catch (err) {
+    console.error('Error fetching last reading:', err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch last reading' });
+  }
+};
+
+
