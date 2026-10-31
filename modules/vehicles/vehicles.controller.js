@@ -17,6 +17,53 @@ const getCollectionForType = (type) => {
   return 'branchvehicle';
 };
 
+const formatTimeValue = (val, timestamp) => {
+  if (val !== undefined && val !== null && val !== '') {
+    if (typeof val === 'number') {
+      if (val >= 0 && val < 1) {
+        const totalSeconds = Math.round(val * 86400);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+      }
+      if (val > 1000000000) {
+        const m = moment(val);
+        if (m.isValid()) return m.format('HH:mm');
+      }
+    }
+    const str = String(val).trim();
+    if (str && str !== '-') {
+      const num = Number(str);
+      if (!isNaN(num) && num >= 0 && num < 1 && str.includes('.')) {
+        const totalSeconds = Math.round(num * 86400);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+      }
+      const timeMatch = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?$/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1], 10);
+        const minutes = timeMatch[2];
+        const meridiem = timeMatch[4];
+        if (meridiem) {
+          if (meridiem.toUpperCase() === 'PM' && hours < 12) hours += 12;
+          if (meridiem.toUpperCase() === 'AM' && hours === 12) hours = 0;
+        }
+        return `${String(hours).padStart(2, '0')}:${minutes}`;
+      }
+      return str;
+    }
+  }
+  if (timestamp) {
+    const tsNum = Number(timestamp);
+    if (!isNaN(tsNum) && tsNum > 0) {
+      const m = moment(tsNum);
+      if (m.isValid()) return m.format('HH:mm');
+    }
+  }
+  return '';
+};
+
 exports.getVehiclesData = async (req, res) => {
   try {
     const db = mongoose.connection.db;
@@ -118,6 +165,8 @@ exports.getVehiclesData = async (req, res) => {
         regno: d.regno || d.vehicleregno || d.vehicleno || d.busnumber || d.vno || d.vehicle_reg_no || '',
         route: d.route || d.routename || '',
         routename: d.routename || d.route || '',
+        time: formatTimeValue(d.time || d.triptime, d.Timestamp || d.timestamp),
+        triptime: formatTimeValue(d.time || d.triptime, d.Timestamp || d.timestamp),
         students: d.students !== undefined ? d.students : (d.studentsstrength !== undefined ? d.studentsstrength : ''),
         studentsstrength: d.studentsstrength !== undefined ? d.studentsstrength : (d.students !== undefined ? d.students : ''),
         strength: d.strength !== undefined ? d.strength : (d.fixedstrength !== undefined ? d.fixedstrength : ''),
@@ -161,13 +210,13 @@ exports.getVehicleMaster = async (req, res) => {
 
     // Fetch all branchvehicle records
     const branchDocs = await db.collection('branchvehicle')
-      .find({}, { projection: { vehicleregno: 1, regno: 1, vehicleno: 1, busnumber: 1, society: 1, branch: 1, route: 1, routename: 1, purchasedate: 1, staffname: 1, drivername: 1, model: 1, make: 1, type: 1, capacity: 1, fuel: 1, expiredate: 1 } })
+      .find({}, { projection: { vehicleregno: 1, regno: 1, vehicleno: 1, busnumber: 1, society: 1, branch: 1, route: 1, routename: 1, purchasedate: 1, staffname: 1, drivername: 1, model: 1, make: 1, type: 1, capacity: 1, fuel: 1, expiredate: 1, fueltank: 1, ekmpl: 1, serviceperiod: 1, servicemilaege: 1, tyres: 1, status: 1 } })
       .toArray()
       .catch(() => []);
 
     // Fetch all vehicleinfo records
     const infoDocs = await db.collection('vehicleinfo')
-      .find({}, { projection: { vehicleregno: 1, regno: 1, vehicleno: 1, society: 1, branch: 1, model: 1, make: 1, type: 1, capacity: 1, fuel: 1, purchasedate: 1, expiredate: 1, route: 1, routename: 1 } })
+      .find({}, { projection: { vehicleregno: 1, regno: 1, vehicleno: 1, society: 1, branch: 1, model: 1, make: 1, type: 1, capacity: 1, fuel: 1, purchasedate: 1, expiredate: 1, route: 1, routename: 1, fueltank: 1, ekmpl: 1, serviceperiod: 1, servicemilaege: 1, tyres: 1, status: 1 } })
       .toArray()
       .catch(() => []);
 
@@ -195,6 +244,12 @@ exports.getVehicleMaster = async (req, res) => {
           routename: doc.routename || doc.route || '',
           staffname: doc.staffname || doc.drivername || '',
           drivername: doc.drivername || doc.staffname || '',
+          fueltank: doc.fueltank || '',
+          ekmpl: doc.ekmpl || '',
+          serviceperiod: doc.serviceperiod || '',
+          servicemilaege: doc.servicemilaege || '',
+          tyres: doc.tyres || '',
+          status: doc.status || 'Active',
         });
       } else {
         const existing = map.get(key);
@@ -216,6 +271,12 @@ exports.getVehicleMaster = async (req, res) => {
           routename: existing.routename || doc.routename || doc.route || '',
           staffname: existing.staffname || doc.staffname || doc.drivername || '',
           drivername: existing.drivername || doc.drivername || doc.staffname || '',
+          fueltank: existing.fueltank || doc.fueltank || '',
+          ekmpl: existing.ekmpl || doc.ekmpl || '',
+          serviceperiod: existing.serviceperiod || doc.serviceperiod || '',
+          servicemilaege: existing.servicemilaege || doc.servicemilaege || '',
+          tyres: existing.tyres || doc.tyres || '',
+          status: existing.status || doc.status || 'Active',
         });
       }
     };
@@ -1273,6 +1334,16 @@ exports.createVehicleItem = async (req, res) => {
       data.routename = data.route;
       data.date = data.date || data.uploaddate || todayDate;
       data.uploaddate = data.uploaddate || data.date || todayDate;
+      const timeVal = formatTimeValue(data.time || data.triptime, data.Timestamp || data.timestamp);
+      data.time = timeVal;
+      data.triptime = timeVal;
+      if (!data.Timestamp && data.date && data.time) {
+        const m = moment(`${data.date} ${data.time}`, ['DD-MM-YYYY HH:mm', 'YYYY-MM-DD HH:mm', 'DD-MM-YYYY hh:mm A']);
+        if (m.isValid()) data.Timestamp = m.valueOf();
+      } else if (!data.Timestamp && data.date) {
+        const m = moment(data.date, ['DD-MM-YYYY', 'YYYY-MM-DD']);
+        if (m.isValid()) data.Timestamp = m.valueOf();
+      }
       data.students = data.students ?? data.studentsstrength ?? '';
       data.studentsstrength = data.students;
       data.strength = data.strength ?? data.fixedstrength ?? '';
@@ -1333,6 +1404,16 @@ exports.bulkCreateVehicleItems = async (req, res) => {
         item.routename = item.route;
         item.date = item.date || item.uploaddate || todayDate;
         item.uploaddate = item.uploaddate || item.date || todayDate;
+        const timeVal = formatTimeValue(item.time || item.triptime, item.Timestamp || item.timestamp);
+        item.time = timeVal;
+        item.triptime = timeVal;
+        if (!item.Timestamp && item.date && item.time) {
+          const m = moment(`${item.date} ${item.time}`, ['DD-MM-YYYY HH:mm', 'YYYY-MM-DD HH:mm', 'DD-MM-YYYY hh:mm A']);
+          if (m.isValid()) item.Timestamp = m.valueOf();
+        } else if (!item.Timestamp && item.date) {
+          const m = moment(item.date, ['DD-MM-YYYY', 'YYYY-MM-DD']);
+          if (m.isValid()) item.Timestamp = m.valueOf();
+        }
         item.capacity = item.capacity !== undefined ? item.capacity : '';
         item.students = item.students ?? item.studentsstrength ?? '';
         item.studentsstrength = item.students;
@@ -1445,6 +1526,11 @@ exports.updateVehicleItem = async (req, res) => {
       if (!updateData.vehicleregno && updateData.regno) updateData.vehicleregno = updateData.regno;
       if (!updateData.route && updateData.routename) updateData.route = updateData.routename;
       if (!updateData.routename && updateData.route) updateData.routename = updateData.route;
+      if (updateData.time !== undefined || updateData.triptime !== undefined) {
+        const timeVal = formatTimeValue(updateData.time || updateData.triptime, updateData.Timestamp || updateData.timestamp);
+        updateData.time = timeVal;
+        updateData.triptime = timeVal;
+      }
 
       if ((updateData.kms === undefined || updateData.kms === null || updateData.kms === '') && updateData.cmr !== undefined && updateData.omr !== undefined && updateData.cmr !== '' && updateData.omr !== '') {
         const diff = Number(updateData.cmr) - Number(updateData.omr);
