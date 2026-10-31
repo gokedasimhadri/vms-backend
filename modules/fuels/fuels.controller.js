@@ -12,11 +12,15 @@ const collectionMap = {
   bunkservicing: 'bunkservicing',
   fuelfill: 'fuelfill',
   bunkfillings: 'fuelfill',
-  busfill: 'busfill',
+    busfill: 'busfill',
   busfillings: 'busfill',
   entrydata: 'busfill',
   generatereport: 'busfill',
   searchbusreport: 'busfill',
+  otherfillings: 'busfill',
+  other_fillings: 'busfill',
+  otherfillingsentry: 'busfill',
+  otherfillingsreport: 'busfill',
 };
 
 exports.getFuelsData = async (req, res) => {
@@ -30,7 +34,26 @@ exports.getFuelsData = async (req, res) => {
       ? {}
       : await buildBranchFilter(req.user, req.query.branch, db);
 
-    let query = { ...branchFilter };
+        let query = { ...branchFilter };
+
+    const otherFillingTypes = ['Private', 'Private vehicle', 'Private Vehicle', 'Stores', 'Power House', 'Power house', 'private', 'stores', 'power house'];
+    if (type === 'otherfillings' || type === 'other_fillings' || type === 'otherfillingsentry' || type === 'otherfillingsreport') {
+      query.vehicletype = { $in: otherFillingTypes };
+    } else if (type === 'busfill' || type === 'busfillings' || type === 'entrydata' || type === 'generatereport' || type === 'searchbusreport') {
+      const excludeCond = {
+        $or: [
+          { vehicletype: { $exists: false } },
+          { vehicletype: null },
+          { vehicletype: { $nin: otherFillingTypes } }
+        ]
+      };
+      if (query.$and) {
+        query.$and.push(excludeCond);
+      } else {
+        query = { ...query, ...excludeCond };
+      }
+    }
+
     if (req.query.search) {
       const search = req.query.search.trim();
       query.$or = [
@@ -217,7 +240,8 @@ exports.getFuelsData = async (req, res) => {
       return {
         ...d,
         id,
-        type: d.type || d.vehicletype || 'Own Vehicle',
+                type: d.type || d.vehicletype || 'Own Vehicle',
+        vehicletype: d.vehicletype || d.type || 'Own Vehicle',
         model: d.model || '',
         vehicleregno: d.vehicleregno || d.regno || '',
         regno: d.regno || d.vehicleregno || '',
@@ -259,10 +283,20 @@ exports.createFuelItem = async (req, res) => {
     const type = (req.params.type || req.body.type || 'busfill').toLowerCase();
     const targetCollection = collectionMap[type] || 'busfill';
 
-    const data = {
+        const data = {
       ...req.body,
       createdAt: new Date()
     };
+
+    if (type === 'otherfillings' || type === 'other_fillings') {
+      if (!data.vehicletype) data.vehicletype = data.type || 'Private';
+    } else if (type === 'busfill') {
+      if (!data.vehicletype) data.vehicletype = 'Own Vehicle';
+    }
+    if (data.vehicletype && !data.type) data.type = data.vehicletype;
+    if (data.type && !data.vehicletype) data.vehicletype = data.type;
+    if (data.vehicleregno && !data.regno) data.regno = data.vehicleregno;
+    if (data.regno && !data.vehicleregno) data.vehicleregno = data.regno;
 
     // Maintain field compatibility
     if (targetCollection === 'fuel') {
@@ -292,9 +326,14 @@ exports.updateFuelItem = async (req, res) => {
     const targetCollection = collectionMap[(type || '').toLowerCase()] || 'busfill';
     const filter = ObjectId.isValid(id) ? { _id: new ObjectId(id) } : { _id: id };
 
-    const updateData = { ...req.body };
+        const updateData = { ...req.body };
     delete updateData._id;
     delete updateData.id;
+
+    if (updateData.vehicletype && !updateData.type) updateData.type = updateData.vehicletype;
+    if (updateData.type && !updateData.vehicletype) updateData.vehicletype = updateData.type;
+    if (updateData.vehicleregno && !updateData.regno) updateData.regno = updateData.vehicleregno;
+    if (updateData.regno && !updateData.vehicleregno) updateData.vehicleregno = updateData.regno;
 
     if (targetCollection === 'fuel') {
       if (updateData.companyname && !updateData.name) updateData.name = updateData.companyname;

@@ -165,6 +165,8 @@ exports.getVehiclesData = async (req, res) => {
         regno: d.regno || d.vehicleregno || d.vehicleno || d.busnumber || d.vno || d.vehicle_reg_no || '',
         route: d.route || d.routename || '',
         routename: d.routename || d.route || '',
+        drivername: d.drivername || d.driver || '',
+        phone: d.phone || d.phonenumber || d.driverphone || '',
         time: formatTimeValue(d.time || d.triptime, d.Timestamp || d.timestamp),
         triptime: formatTimeValue(d.time || d.triptime, d.Timestamp || d.timestamp),
         students: d.students !== undefined ? d.students : (d.studentsstrength !== undefined ? d.studentsstrength : ''),
@@ -1033,9 +1035,20 @@ exports.getVehicleTripdata = async (req, res) => {
           d.routename ||
           "",
 
-        routename:
+                routename:
           d.routename ||
           d.route ||
+          "",
+
+        drivername:
+          d.drivername ||
+          d.driver ||
+          "",
+
+        phone:
+          d.phone ||
+          d.phonenumber ||
+          d.driverphone ||
           "",
 
         date:
@@ -1400,8 +1413,10 @@ exports.bulkCreateVehicleItems = async (req, res) => {
         item.branch = item.branch || '';
         item.regno = item.regno || item.vehicleregno || item.vno || item.busnumber || '';
         item.vehicleregno = item.regno;
-        item.route = item.route || item.routename || '';
+                item.route = item.route || item.routename || '';
         item.routename = item.route;
+        item.drivername = item.drivername || item.driver || '';
+        item.phone = item.phone || item.phonenumber || item.driverphone || '';
         item.date = item.date || item.uploaddate || todayDate;
         item.uploaddate = item.uploaddate || item.date || todayDate;
         const timeVal = formatTimeValue(item.time || item.triptime, item.Timestamp || item.timestamp);
